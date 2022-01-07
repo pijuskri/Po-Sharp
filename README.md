@@ -130,16 +130,15 @@ will be generated in `compiled/hello.asm` (do not ask why I named it that).
 
 <!-- MARKDOWN LINKS & IMAGES -->
 <!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
-[contributors-shield]: https://img.shields.io/github/contributors/github_username/repo_name.svg?style=for-the-badge
-[contributors-url]: https://github.com/github_username/repo_name/graphs/contributors
-
-[issues-shield]: https://img.shields.io/github/issues/github_username/repo_name.svg?style=for-the-badge
-[issues-url]: https://github.com/github_username/repo_name/issues
-[license-shield]: https://img.shields.io/github/license/github_username/repo_name.svg?style=for-the-badge
-[license-url]: https://github.com/github_username/repo_name/blob/master/LICENSE.txt
+[contributors-shield]: https://img.shields.io/github/contributors/pijuskri/Po-Sharp.svg?style=for-the-badge
+[contributors-url]: https://github.com/pijuskri/Po-Sharp/graphs/contributors
+[issues-shield]: https://img.shields.io/github/issues/pijuskri/Po-Sharp.svg?style=for-the-badge
+[issues-url]: https://github.com/pijuskri/Po-Sharp/issues
 [linkedin-shield]: https://img.shields.io/badge/-LinkedIn-black.svg?style=for-the-badge&logo=linkedin&colorB=555
 [linkedin-url]: https://www.linkedin.com/in/pijus-krisiuk%C4%97nas-66177715b/
 
+[license-shield]: https://img.shields.io/github/license/pijuskri/Po-Sharp.svg?style=for-the-badge
+[license-url]: https://github.com/pijuskri/Po-Sharp/blob/master/LICENSE.md
 [forks-shield]: https://img.shields.io/github/forks/github_username/repo_name.svg?style=for-the-badge
 [forks-url]: https://github.com/github_username/repo_name/network/members
 [stars-shield]: https://img.shields.io/github/stars/github_username/repo_name.svg?style=for-the-badge
