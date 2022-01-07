@@ -21,7 +21,7 @@
 [![MIT License][license-shield]][license-url]
 [![LinkedIn][linkedin-shield]][linkedin-url]
 
-<h2 align="center">P#</h2>
+<h2 align="center">Po#</h2>
 <div>
   <p align="center">
     Custom language compiler to X86_64 nasm assembly, written in Scala
@@ -57,8 +57,9 @@
 ## About The Project
 <div id="about-the-project"></div>
 
-A testing ground for my knowledge of unix, make, scala, compilers and assembly. I called it P#
-cause my friend suggested it and I will base the language on C#.
+A testing ground for my knowledge of unix, make, scala, compilers and assembly. I called it Po#
+cause my friend suggested something like P#, but that is already a language,
+so i chose Po# as it reminds me of potatoes :). I will also base the language on C# in some ways.
 
 I did a compiler course in university, but we actually wrote a interpreter there.
 The language was quite functional and of limited syntax. I tried to extend it to a different
