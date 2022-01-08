@@ -39,6 +39,7 @@ object Parser {
     case (l, "-", r) => Expr.Minus(l, r)
     case (l, "*", r) => Expr.Mult(l, r)
     case (l, "/", r) => Expr.Div(l, r)
+    case _ => throw new ParseException("not bin p[")
   })
 
   def str[_: P]: P[Expr] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(Expr.Str)
@@ -55,7 +56,8 @@ object Parser {
     val parsed = fastparse.parse(input, block(_));
     parsed match {
       case Parsed.Success(expr, n) => expr;
-      case Parsed.Failure(n) => {println(n._3.startIndex); throw new ParseException("");}
+      case Parsed.Failure(s, m, ext) => {println(ext.startIndex); throw new ParseException("parsing fail");}
+      case _ => throw new ParseException("parsing fail")
     }
   }
 }
@@ -71,6 +73,15 @@ object Main extends App {
   println(asm);
 
   writeToFile(asm, "compiled/", "hello.asm")
+
+  def writeToFile(input: String, directoryPath: String, filename: String): Unit = {
+    val directory = new File(directoryPath);
+    if (!directory.exists()) directory.mkdir();
+
+    val fileWriter = new FileWriter(new File(directoryPath+filename))
+    fileWriter.write(input)
+    fileWriter.close()
+  }
 }
 
 object ToAssembly {
@@ -109,7 +120,7 @@ object ToAssembly {
           case Expr.SetVal(Expr.Ident(name), value) => convert(value, reg, env) + setval(name, env);
           case Expr.DefVal( Expr.Ident(name)) => newenv = newVar(name, newenv); ""
           case Expr.Print(toPrint) => printInterp(toPrint, env);
-          case _ => throw new Exception(lines.head + " should not be in block lines")
+          case _ => throw new Exception(lines.head.toString + " should not be in block lines")
         }
         if(lines.tail.nonEmpty) defstring + convert(Expr.Block(lines.tail), defaultReg, newenv)
         else defstring;
@@ -151,15 +162,7 @@ object ToAssembly {
   def printInterp(toPrint: Expr, env: Map[String, Int]): String = toPrint match {
       case Expr.Num(value) => s"mov rax, 0${value}d\n" + printTemplate("format_num");
       case Expr.Ident(value) => s"mov rax, ${lookup(value, env)}\n" + printTemplate("format_num");
-      case _ => throw new Exception(toPrint + " not recognized in print")
+      case _ => throw new Exception(toPrint.toString + " not recognized in print")
   }
 }
 
-def writeToFile(input: String, directoryPath: String, filename: String): Unit ={
-  val directory = new File(directoryPath);
-  if (!directory.exists()) directory.mkdir();
-
-  val fileWriter = new FileWriter(new File(directoryPath+filename))
-  fileWriter.write(input)
-  fileWriter.close()
-}

@@ -80,10 +80,13 @@ to translate to assembly.
 ### Prerequisites
 <div id="prerequisites"></div>
 
+* [JDK 13+](https://www.oracle.com/java/technologies/downloads/)
 * [Scala 2.13](https://www.scala-lang.org/download/)
 * [SBT 1.6.1](https://www.scala-sbt.org/)
-* [Ubuntu 18]() or [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)
+* [Ubuntu 18.04]() and/or [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)
 
+For some reason sbt takes some effort to get on Ubuntu,
+i used this [guide](https://www.techrepublic.com/article/how-to-install-sbt-on-ubuntu-for-scala-and-java-projects/)
 
 ### Getting Started
 <div id="getting-started"></div>
