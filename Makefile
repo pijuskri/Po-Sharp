@@ -1,7 +1,7 @@
 all: run
 
 #assemble hello.asm
-abuild:
+build:
 	mkdir -p compiled && \
 	cd compiled/ && \
 	nasm -felf64 hello.asm && \
