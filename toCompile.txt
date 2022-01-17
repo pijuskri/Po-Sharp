@@ -1,0 +1,11 @@
+{
+ def a = 3;
+ def c = 5;
+ def b = 0;
+ if( true ) {
+    b = 2;
+ }
+ else {
+    b = 3;
+ };
+}

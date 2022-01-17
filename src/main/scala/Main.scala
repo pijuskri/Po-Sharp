@@ -2,6 +2,7 @@ import fastparse.MultiLineWhitespace._
 import fastparse._
 
 import java.io.{File, FileWriter}
+import scala.io.Source
 
 
 sealed trait Expr
@@ -22,6 +23,7 @@ object Expr{
   case class Or( conditions: List[Expr] ) extends Expr
   case class True() extends Expr
   case class False() extends Expr
+  case class Not(condition: Expr) extends Expr
   //case class RetIf(condition: Expr, ifTrue: Expr, ifFalse: Expr) extends Expr
 
   case class Print(value: Expr) extends Expr
@@ -29,6 +31,7 @@ object Expr{
   case class DefVal(variable: Expr) extends Expr
   case class Block(lines: List[Expr]) extends Expr
   case class ExtendBlock(lines: List[Expr]) extends Expr
+  case class While(condition: Expr, execute: Expr.Block) extends Expr
   //case class Local(name: String, assigned: Expr, body: Expr) extends Expr
   //case class Func(argNames: Seq[String], body: Expr) extends Expr
   //case class Call(expr: Expr, args: Seq[Expr]) extends Expr
@@ -45,7 +48,11 @@ object Parser {
   def line[_: P]:P[Expr] = P(expr ~/ ";")
   def expr[_: P]: P[Expr] = P( defAndSetVal | defVal | setVal | IfOp | print)
 
-  def prefixExpr[_: P]: P[Expr] = P( parens | number | ident | str)
+  def prefixExpr[_: P]: P[Expr] = P( parens | number | ident | constant | str)
+
+  def constant[_: P]: P[Expr] = P( trueC | falseC )
+  def trueC[_: P]: P[Expr.True] = P("true").map(_ => Expr.True())
+  def falseC[_: P]: P[Expr.False] = P("false").map(_ => Expr.False())
 
   def defVal[_: P] = P("def " ~ ident).map(x => Expr.DefVal(x))
   def setVal[_: P] = P(ident ~ "=" ~ prefixExpr).map(x => Expr.SetVal(x._1, x._2))
@@ -76,9 +83,6 @@ object Parser {
           case "-" => Expr.Minus(left, right)
           case "*" => Expr.Mult(left, right)
           case "/" => Expr.Div(left, right)
-          case "==" => Expr.Equals(left, right)
-          case "<" => Expr.LessThan(left, right)
-          case ">" => Expr.MoreThan(left, right)
         }
     }
   }
@@ -89,12 +93,17 @@ object Parser {
   }
 
   //binOp | orCond |
-  def condition[_: P]: P[Expr] = P("(" ~/ (condOp | binOp) ~ ")")
+  def condition[_: P]: P[Expr] = P("(" ~/ (condOp | conditionBin | constant) ~ ")")
+  def conditionBin[_: P]: P[Expr] = P( prefixExpr ~ StringIn("==", ">", "<").! ~/ prefixExpr).map{
+    case (left, operator, right) => operator match {
+      case "==" => Expr.Equals(left, right)
+      case "<" => Expr.LessThan(left, right)
+      case ">" => Expr.MoreThan(left, right)
+    }
+  }
   /*
   def andCond[_: P]: P[Expr.And] = P(condition ~ ("&&" ~/ condition).rep).map((conds) => Expr.And(conds._1 +: conds._2.toList ))
   def orCond[_: P]: P[Expr.Or] = P(condition ~ ("||" ~/ condition).rep).map((conds) => Expr.Or(conds._1 +: conds._2.toList ))
-   */
-  /*
   rest._2.toList.foldLeft((List(first), "")) {
     case (acc, (operator, right)) =>
       if(operator != acc._2 && acc._2 != "") throw new Exception("different logical operators in the same line")
@@ -140,7 +149,8 @@ object Main extends App {
   //def divMul[_: P] = P( prefixExpr ~ CharIn("*/").! ~/ prefixExpr ).map( token => Expr.BinOp(token._2, token._1, token._3))
   //def addSub[_: P] = P( prefixExpr ~ CharIn("+\\-").! ~/ prefixExpr ).map( token => Expr.BinOp(token._2, token._1, token._3))
   //{def a = 3; def c = 5; def b = 0; if( (a == 2) || (c == 5) ) {b = 2;} else {b = 3;};}
-  val parsed = Parser.parseInput("{def a = 3; def c = 5; def b = 0; if( (a > 2) || (c < 6)) {b = 2;} else {b = 3;};}");
+  val toCompile = readFile("", "toCompile.txt")
+  val parsed = Parser.parseInput(toCompile);
   println(parsed);
   println("")
   val asm = ToAssembly.convertMain(parsed);
@@ -155,6 +165,12 @@ object Main extends App {
     val fileWriter = new FileWriter(new File(directoryPath+filename))
     fileWriter.write(input)
     fileWriter.close()
+  }
+  def readFile(directoryPath: String, filename: String): String = {
+    val source = Source.fromFile(new File(directoryPath+filename))
+    val codetxt = source.getLines.mkString
+    source.close()
+    codetxt
   }
 }
 
@@ -230,6 +246,8 @@ object ToAssembly {
     val newtrueLabel = s"cond_${subconditionCounter}_true"
     val newfalseLabel = s"cond_${subconditionCounter}_false"
     val ret = input match {
+      case Expr.True() => if(orMode) s"jmp ${trueLabel}\n" else s"jmp ${falseLabel}\n"
+      case Expr.False() => if(orMode) s"jmp ${falseLabel}\n" else s"jmp ${falseLabel}\n"
       case Expr.Equals(left, right) => {
         compare(left, right) + ( if(orMode) s"je ${trueLabel}\n" else s"jne ${falseLabel}\n" )
       }
@@ -239,6 +257,11 @@ object ToAssembly {
       case Expr.MoreThan(left, right) => {
         compare(left, right) + ( if(orMode) s"jg ${trueLabel}\n" else s"jle ${falseLabel}\n" )
       }
+      case Expr.Not(cond) => {
+        subconditionCounter += 1
+        convertCondition(cond, reg, env, orMode = orMode, newtrueLabel, newfalseLabel) +
+        s"${newfalseLabel}:\n" + s"jmp ${trueLabel}\n" + s"${newtrueLabel}:\n" + s"jmp ${falseLabel}\n"
+      }
       case Expr.And(list) => {
         subconditionCounter += 1;
         list.foldLeft("")((acc, subcond) => acc + convertCondition(subcond, reg, env, orMode = false, newtrueLabel, newfalseLabel)) +
@@ -247,7 +270,7 @@ object ToAssembly {
       case Expr.Or(list) => {
         subconditionCounter += 1;
         list.foldLeft("")((acc, subcond) => acc + convertCondition(subcond, reg, env, orMode = true, newtrueLabel, newfalseLabel)) +
-          s"${newtrueLabel}:\n" + s"jmp ${trueLabel}\n" + s"${newfalseLabel}:\n" + s"jmp ${falseLabel}\n"
+        s"${newfalseLabel}:\n" + s"jmp ${falseLabel}\n" + s"${newtrueLabel}:\n" + s"jmp ${trueLabel}\n" 
       }
     }
     ret
