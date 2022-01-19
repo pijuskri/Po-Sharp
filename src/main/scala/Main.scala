@@ -1,3 +1,5 @@
+package scala
+
 import fastparse.MultiLineWhitespace._
 import fastparse._
 
