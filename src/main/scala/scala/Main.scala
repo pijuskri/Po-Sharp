@@ -1,6 +1,6 @@
 package scala
 
-import fastparse.MultiLineWhitespace._
+import fastparse.JavaWhitespace._
 import fastparse._
 
 import java.io.{File, FileWriter}
@@ -34,6 +34,12 @@ object Expr{
   case class Block(lines: List[Expr]) extends Expr
   case class ExtendBlock(lines: List[Expr]) extends Expr
   case class While(condition: Expr, execute: Expr.Block) extends Expr
+
+  case class GetArray(array: Array, index: Int) extends Expr
+  case class Array(startPointer: StackVar, size: Int) extends Expr
+  case class DefineArray(size: Int) extends Expr
+
+  case class StackVar(offset: Int) extends Expr
   //case class Local(name: String, assigned: Expr, body: Expr) extends Expr
   //case class Func(argNames: Seq[String], body: Expr) extends Expr
   //case class Call(expr: Expr, args: Seq[Expr]) extends Expr
@@ -43,22 +49,20 @@ object Expr{
 
 object Parser {
 
-  def block[_: P] = P("{" ~ line.rep(0) ~ "}").map ( lines => lines.foldLeft(List(): List[Expr])( (acc, el) => el match {
+  def block[_: P] = P("{" ~/ line.rep(0) ~ "}").map ( lines => lines.foldLeft(List(): List[Expr])( (acc, el) => el match {
     case Expr.ExtendBlock(sub) => acc ::: sub;
     case _ => acc :+ el;
   } )).map(x=>Expr.Block(x))
   def line[_: P]:P[Expr] = P(expr ~/ ";")
-  def expr[_: P]: P[Expr] = P( defAndSetVal | defVal | setVal | IfOp | print)
+  def expr[_: P]: P[Expr] = P( defAndSetVal | defVal | setVal | IfOp | whileLoop | print)
 
   def prefixExpr[_: P]: P[Expr] = P( parens | number | ident | constant | str)
-
-  def constant[_: P]: P[Expr] = P( trueC | falseC )
-  def trueC[_: P]: P[Expr.True] = P("true").map(_ => Expr.True())
-  def falseC[_: P]: P[Expr.False] = P("false").map(_ => Expr.False())
 
   def defVal[_: P] = P("def " ~ ident).map(x => Expr.DefVal(x))
   def setVal[_: P] = P(ident ~ "=" ~ prefixExpr).map(x => Expr.SetVal(x._1, x._2))
   def defAndSetVal[_: P] = P( "def " ~ ident ~ "=" ~ prefixExpr).map(x => Expr.ExtendBlock(List(Expr.DefVal(x._1), Expr.SetVal(x._1, x._2))))
+
+
 
   def parens[_: P] = P("(" ~ binOp ~ ")")
 
@@ -94,12 +98,16 @@ object Parser {
     case (cond, ex_true, None) => Expr.If(cond, ex_true, Expr.Block(List()));
   }
 
-  def condition[_: P]: P[Expr] = P("(" ~/ (condOp | conditionBin | constant) ~ ")")
-  def conditionBin[_: P]: P[Expr] = P( prefixExpr ~ StringIn("==", ">", "<").! ~/ prefixExpr).map{
+  def condition[_: P]: P[Expr] = P("(" ~/ ( negate | condOp | conditionBin | constant | condition ) ~ ")")
+  def negate[_: P]: P[Expr.Not] = P( "!" ~/ condition).map(Expr.Not)
+  def conditionBin[_: P]: P[Expr] = P( prefixExpr ~ StringIn("==", "!=", ">", "<", "<=", ">=").! ~/ prefixExpr).map{
     case (left, operator, right) => operator match {
       case "==" => Expr.Equals(left, right)
+      case "!=" => Expr.Not(Expr.Equals(left, right))
       case "<" => Expr.LessThan(left, right)
       case ">" => Expr.MoreThan(left, right)
+      case "<=" => Expr.Not(Expr.MoreThan(left, right))
+      case ">=" => Expr.Not(Expr.LessThan(left, right))
     }
   }
 
@@ -108,20 +116,26 @@ object Parser {
     case (first, "||", second, rest) => Expr.Or(List(first, second) ::: rest.toList)
   }
 
-  def elseOp[_: P] = P("else" ~ block)
+  def elseOp[_: P] = P("else" ~/ block)
+
+  def whileLoop[_: P]: P[Expr.While] = P("while" ~/ condition ~ block).map((input)=>Expr.While(input._1, input._2))
 
   def str[_: P]: P[Expr] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(Expr.Str)
+  def ident[_: P]: P[Expr.Ident] = P(CharIn("a-zA-Z_") ~~ CharsWhileIn("a-zA-Z0-9_", 0)).!.map((input) => {
+    //checkForReservedKeyword(Expr.Ident(input))
+    Expr.Ident(input)
+  })
+  def number[_: P]: P[Expr.Num] = P( "-".!.? ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.Num(Integer.parseInt(x)))
+  def constant[_: P]: P[Expr] = P( trueC | falseC )
+  def trueC[_: P]: P[Expr.True] = P("true").map(_ => Expr.True())
+  def falseC[_: P]: P[Expr.False] = P("false").map(_ => Expr.False())
 
-  def ident[_: P]: P[Expr.Ident] = P(CharIn("a-zA-Z_") ~~ CharsWhileIn("a-zA-Z0-9_", 0)).!.map(Expr.Ident)
-
-  def number[_: P]: P[Expr.Num] = P(CharsWhileIn("0-9", 1)).!.map(x => Expr.Num(Integer.parseInt(x)))
-
-  def print[_: P]: P[Expr.Print] = P("print(" ~ ident ~ ")").map(Expr.Print)
+  def print[_: P]: P[Expr.Print] = P("print" ~/ "(" ~/ (ident | number) ~ ")").map(Expr.Print)
 
   class ParseException(s: String) extends RuntimeException(s)
-  val reservedKeywords = List("def", "and", "or");
+  val reservedKeywords = List("def", "if", "while")
   def checkForReservedKeyword(input: Expr.Ident): Unit ={
-    if(reservedKeywords.contains(input.name)) throw new ParseException("parsing fail");
+    if(reservedKeywords.contains(input.name)) throw new ParseException(s"${input.name} is a reserved keyword");
   }
 
   def parseInput(input: String): Expr = {
@@ -206,15 +220,20 @@ object ToAssembly {
           case Expr.DefVal( Expr.Ident(name)) => newenv = newVar(name, newenv); ""
           case Expr.Print(toPrint) => printInterp(toPrint, env);
           case Expr.If(condition, ifTrue, ifFalse) => {
-            /*
-            val ret = convert(condition, reg, env) + s"if_${ifCounter}_false:\n" + convert(ifFalse, reg, env) +
-              s"jmp if_${ifCounter}_end\n" + s"if_${ifCounter}_true:\n" + convert(ifTrue, reg, env) + s"if_${ifCounter}_end:\n"
-             */
             val trueLabel = s"if_${ifCounter}_true"
             val falseLabel = s"if_${ifCounter}_false"
             val endLabel = s"if_${ifCounter}_end"
             val ret = convertCondition(condition, reg, env, orMode = false, trueLabel, falseLabel) + s"${trueLabel}:\n" + convert(ifTrue, reg, env) +
               s"jmp ${endLabel}\n" + s"${falseLabel}:\n" + convert(ifFalse, reg, env) + s"${endLabel}:\n"
+            ifCounter += 1;
+            ret
+          }
+          case Expr.While(condition, execute) => {
+            val startLabel = s"while_${ifCounter}_start"
+            val trueLabel = s"while_${ifCounter}_true"
+            val endLabel = s"while_${ifCounter}_end"
+            val ret = s"${startLabel}:\n" + convertCondition(condition, reg, env, orMode = false, trueLabel, endLabel) + s"${trueLabel}:\n" + convert(execute, reg, env) +
+              s"jmp ${startLabel}\n" + s"${endLabel}:\n"
             ifCounter += 1;
             ret
           }
@@ -251,7 +270,7 @@ object ToAssembly {
       case Expr.Not(cond) => {
         subconditionCounter += 1
         convertCondition(cond, reg, env, orMode = orMode, newtrueLabel, newfalseLabel) +
-        s"${newfalseLabel}:\n" + s"jmp ${trueLabel}\n" + s"${newtrueLabel}:\n" + s"jmp ${falseLabel}\n"
+        s"${newtrueLabel}:\n" + s"jmp ${falseLabel}\n" + s"${newfalseLabel}:\n" + s"jmp ${trueLabel}\n"
       }
       case Expr.And(list) => {
         subconditionCounter += 1;

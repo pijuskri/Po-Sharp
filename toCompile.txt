@@ -1,11 +1,7 @@
 {
- def a = 3;
- def c = 5;
- def b = 0;
- if( (c == 5) || (b > 0) ) {
-    b = 2;
- }
- else {
-    b = 3;
+ def a = 5;
+ while( a >= 0 ) {
+    a = (a - 1);
  };
+ print(a);
 }
