@@ -92,7 +92,6 @@ object Parser {
     case (cond, ex_true, None) => Expr.If(cond, ex_true, Expr.Block(List()));
   }
 
-  //binOp | orCond |
   def condition[_: P]: P[Expr] = P("(" ~/ (condOp | conditionBin | constant) ~ ")")
   def conditionBin[_: P]: P[Expr] = P( prefixExpr ~ StringIn("==", ">", "<").! ~/ prefixExpr).map{
     case (left, operator, right) => operator match {
@@ -101,19 +100,7 @@ object Parser {
       case ">" => Expr.MoreThan(left, right)
     }
   }
-  /*
-  def andCond[_: P]: P[Expr.And] = P(condition ~ ("&&" ~/ condition).rep).map((conds) => Expr.And(conds._1 +: conds._2.toList ))
-  def orCond[_: P]: P[Expr.Or] = P(condition ~ ("||" ~/ condition).rep).map((conds) => Expr.Or(conds._1 +: conds._2.toList ))
-  rest._2.toList.foldLeft((List(first), "")) {
-    case (acc, (operator, right)) =>
-      if(operator != acc._2 && acc._2 != "") throw new Exception("different logical operators in the same line")
-      operator match {
-        case "&&" => (acc._1 :+ right,"&&")
-        case "-" => (acc._1 :+ right,"&&")
-        case "==" => Expr.Equals(left, right)
-      }
-  }
-   */
+
   def condOp[_: P]: P[Expr] = P(condition ~ ("&&" | "||").! ~/ condition ~ (("&&" | "||") ~/ condition).rep).map{
     case (first, "&&", second, rest) => Expr.And(List(first, second) ::: rest.toList)
     case (first, "||", second, rest) => Expr.Or(List(first, second) ::: rest.toList)
@@ -185,12 +172,14 @@ object ToAssembly {
         | sub rsp, 256
         |""".stripMargin;
     converted += convert(input, defaultReg, Map() );
+    /*
     converted +=
         """mov rdi, format_num
         |mov rsi, rax
         |xor rax, rax
         |call printf
         |""".stripMargin
+     */
     converted += "add rsp, 256\n"
     converted += "  mov rax, 0\n  ret\n"
     converted += "format_num:\n        db  \"%d\", 10, 0"
@@ -246,8 +235,8 @@ object ToAssembly {
     val newtrueLabel = s"cond_${subconditionCounter}_true"
     val newfalseLabel = s"cond_${subconditionCounter}_false"
     val ret = input match {
-      case Expr.True() => if(orMode) s"jmp ${trueLabel}\n" else s"jmp ${falseLabel}\n"
-      case Expr.False() => if(orMode) s"jmp ${falseLabel}\n" else s"jmp ${falseLabel}\n"
+      case Expr.True() => if(orMode) s"jmp ${trueLabel}\n" else ""
+      case Expr.False() => if(!orMode) s"jmp ${falseLabel}\n" else ""
       case Expr.Equals(left, right) => {
         compare(left, right) + ( if(orMode) s"je ${trueLabel}\n" else s"jne ${falseLabel}\n" )
       }
