@@ -36,6 +36,7 @@ object Expr{
   case class While(condition: Expr, execute: Expr.Block) extends Expr
 
   case class GetArray(array: Ident, index: Int) extends Expr
+  case class SetArray(array: Ident, index: Int, value: Expr) extends Expr
   //case class Array(startPointer: StackVar, size: Int) extends Expr
   case class DefineArray(size: Int) extends Expr
 
@@ -62,7 +63,7 @@ object Parser {
     case _ => acc :+ el;
   } )).map(x=>Expr.Block(x))
   def line[_: P]:P[Expr] = P(expr ~/ ";")
-  def expr[_: P]: P[Expr] = P( arrayDef | defAndSetVal | defVal | setVal | IfOp | whileLoop | print)
+  def expr[_: P]: P[Expr] = P( arrayDef | defAndSetVal | defVal | setArray | setVal | IfOp | whileLoop | print)
 
   def prefixExpr[_: P]: P[Expr] = P( parens | getArray | number | ident | constant | str)
 
@@ -78,6 +79,7 @@ object Parser {
     ));
   })
   def getArray[_: P]: P[Expr.GetArray] = P(ident ~ "[" ~/ number ~ "]").map((x) => Expr.GetArray(x._1, x._2.value))
+  def setArray[_: P]: P[Expr.SetArray] = P(ident ~ "[" ~/ number ~ "]" ~/ "=" ~ prefixExpr).map((x) => Expr.SetArray(x._1, x._2.value, x._3))
 
   def parens[_: P] = P("(" ~ binOp ~ ")")
 
@@ -145,7 +147,7 @@ object Parser {
   def trueC[_: P]: P[Expr.True] = P("true").map(_ => Expr.True())
   def falseC[_: P]: P[Expr.False] = P("false").map(_ => Expr.False())
 
-  def print[_: P]: P[Expr.Print] = P("print" ~/ "(" ~/ (ident | number) ~ ")").map(Expr.Print)
+  def print[_: P]: P[Expr.Print] = P("print" ~/ "(" ~/ prefixExpr ~ ")").map(Expr.Print)
 
   class ParseException(s: String) extends RuntimeException(s)
   val reservedKeywords = List("def", "if", "while")
@@ -199,6 +201,7 @@ object ToAssembly {
       """ global main
         | extern printf
         | extern calloc
+        | extern free
         | section .text
         |main:
         | sub rsp, 256
@@ -237,7 +240,7 @@ object ToAssembly {
       }
       case Expr.GetArray(name, index) => convert(name, reg, env) match {
         case (code, Type.Array(size)) => {
-          if(index>size) throw new Exception(s"array ${name.name} index out of bounds: $index")
+          if(index>=size) throw new Exception(s"array ${name.name} index out of bounds: $index")
           (code + s"mov ${reg.tail.head}, ${reg.head}\n" + s"mov ${reg.head}, [${reg.tail.head}+${index*8}]\n", Type.Num())
         }
         case (code, varType) => throw new Exception(s"trying to access variable ${name.name} as an array, has type $varType")
@@ -255,6 +258,10 @@ object ToAssembly {
         val modified = setval(name, converted._2, env)
         newenv = modified._2
         converted._1 + modified._1
+      };
+      case Expr.SetArray(Expr.Ident(name), index, value) => {
+        val converted = convert(value, reg, env);
+        converted._1 + setArray(name, index, converted._2, env)
       };
       case Expr.DefVal( Expr.Ident(name)) => newenv = newVar(name, Type.Undefined(), newenv); ""
       case Expr.Print(toPrint) => printInterp(toPrint, env);
@@ -282,6 +289,7 @@ object ToAssembly {
       lineNr+=1;
       defstring += convert(Expr.Block(lines.tail), defaultReg, newenv)._1
     }
+    else defstring += freeMemory(env)
     (defstring, Type.Undefined());
   }
   private def convertCondition(input: Expr, reg: List[String], env: Env, orMode: Boolean, trueLabel: String, falseLabel: String): String = {
@@ -327,6 +335,11 @@ object ToAssembly {
     }
     (s"mov qword ${look._1}, rax\n", newenv)
   }
+  def setArray(name: String, index: Int, raxType: Type, env: Env): String = {
+    val look = lookup(name, env);
+    if(raxType != Type.Num()) throw new Exception(s"trying to set variable of type ${look._2.varType} to $raxType");
+    s"mov rdi, ${look._1}\n" + s"mov [rdi+${index*8}], rax\n"
+  }
 
   def lookup(tofind: String, env: Env): (String, Variable) = {
     val ret = lookupOffset(tofind, env)
@@ -366,6 +379,10 @@ object ToAssembly {
       case _ => throw new Exception(s"input of type ${converted._2} not recognized in print")
     }
   }
+  def freeMemory(env: Env): String = env.foldLeft("")((acc, entry) => entry._2.varType match {
+    case Type.Array(size) => acc + s"mov rdi, [rsp+${entry._2.pointer}]\n" + "call free\n";
+    case _ => acc
+  })
 
   type Env = Map[String, Variable]
   case class Variable(pointer: Int, varType: Type)
