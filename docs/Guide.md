@@ -1,10 +1,10 @@
-#Guide to Po#
+# Guide to Po#
 
 This is a small guide to introduce the syntax of the language.
 It is very WIP, but I do want to provide basic info here so anyone
 would be able to write Po# code.
 
-###Basics
+### Basics
 
 ```
 //currently, the top level must be enclosed in brackects, bracket nesting is allowed
@@ -19,7 +19,7 @@ would be able to write Po# code.
 }
 ```
 
-###Printing and arithmetic
+### Printing and arithmetic
 
 ```
 {
@@ -29,7 +29,7 @@ would be able to write Po# code.
 }
 ```
 
-###Variables
+### Variables
 
 ```
 {
@@ -40,7 +40,7 @@ would be able to write Po# code.
 }
 ```
 
-###Conditions
+### Conditions
 
 ```
 {
@@ -68,7 +68,7 @@ would be able to write Po# code.
 }
 ```
 
-###While
+### While
 
 ```
 {
@@ -80,7 +80,7 @@ would be able to write Po# code.
 }
 ```
 
-###Arrays
+### Arrays
 
 ```
 {
