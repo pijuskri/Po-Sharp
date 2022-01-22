@@ -36,7 +36,7 @@ object Expr{
   case class While(condition: Expr, execute: Expr.Block) extends Expr
 
   case class GetArray(array: Ident, index: Int) extends Expr
-  case class Array(startPointer: StackVar, size: Int) extends Expr
+  //case class Array(startPointer: StackVar, size: Int) extends Expr
   case class DefineArray(size: Int) extends Expr
 
   case class StackVar(offset: Int) extends Expr
@@ -45,6 +45,14 @@ object Expr{
   //case class Call(expr: Expr, args: Seq[Expr]) extends Expr
 
   case class Nothing() extends Expr
+}
+
+sealed trait Type
+object Type {
+  case class Undefined() extends Type
+  case class Num() extends Type
+  case class Character() extends Type
+  case class Array(size: Int) extends Type
 }
 
 object Parser {
@@ -195,7 +203,7 @@ object ToAssembly {
         |main:
         | sub rsp, 256
         |""".stripMargin;
-    converted += convert(input, defaultReg, Map() );
+    converted += convert(input, defaultReg, Map() )._1;
     /*
     converted +=
         """mov rdi, format_num
@@ -212,31 +220,43 @@ object ToAssembly {
   var lineNr = 0;
   var ifCounter = 0;
   var subconditionCounter: Int = 0;
-  private def convert(input: Expr, reg: List[String], env: Map[String, Int]): String = {
+  private def convert(input: Expr, reg: List[String], env: Env): (String, Type) = {
     input match {
-      case Expr.Num(value) => s"mov ${reg.head}, 0${value}d\n"
-      case Expr.Plus(left, right) => binOpTemplate(left, right, "add", reg, env)
-      case Expr.Minus(left, right) => binOpTemplate(left, right, "sub", reg, env)
-      case Expr.Mult(left, right) => mulTemplate(left, right, "imul", reg, env)
-      case Expr.Ident(name) => s"mov ${reg.head}, ${lookup(name, env)}\n"
+      case Expr.Num(value) => (s"mov ${reg.head}, 0${value}d\n", Type.Num())
+      case Expr.Plus(left, right) => (binOpTemplate(left, right, "add", reg, env), Type.Num())
+      case Expr.Minus(left, right) => (binOpTemplate(left, right, "sub", reg, env), Type.Num())
+      case Expr.Mult(left, right) => (mulTemplate(left, right, "imul", reg, env), Type.Num())
+      case Expr.Ident(name) => {
+        val look = lookup(name, env)
+        (s"mov ${reg.head}, ${look._1}\n", look._2.varType)
+      }
       //case Expr.Div(left, right) => mulTemplate(left, right, "idiv", reg)
       case Expr.Block(lines) => convertBlock(lines, reg, env);
       case Expr.DefineArray(size) => {
-        s"mov rdi, ${size}\n" + s"mov rsi, 8\n" + "call calloc\n"
+        (s"mov rdi, ${size}\n" + s"mov rsi, 8\n" + "call calloc\n", Type.Array(size))
       }
-      case Expr.GetArray(name, index) => {
-       convert(name, reg, env) + s"mov ${reg.tail.head}, ${reg.head}\n" + s"mov ${reg.head}, [${reg.tail.head}+${index*8}]\n"
+      case Expr.GetArray(name, index) => convert(name, reg, env) match {
+        case (code, Type.Array(size)) => {
+          if(index>size) throw new Exception(s"array ${name.name} index out of bounds: $index")
+          (code + s"mov ${reg.tail.head}, ${reg.head}\n" + s"mov ${reg.head}, [${reg.tail.head}+${index*8}]\n", Type.Num())
+        }
+        case (code, varType) => throw new Exception(s"trying to access variable ${name.name} as an array, has type $varType")
       }
-      case Expr.Nothing() => "";
+      case Expr.Nothing() => ("", Type.Undefined());
       case _ => throw new Exception ("not interpreted yet :(");
     }
   }
-  private def convertBlock(lines: List[Expr], reg: List[String], env: Map[String, Int]): String = {
-    if(lines.isEmpty) return "";
+  private def convertBlock(lines: List[Expr], reg: List[String], env: Env): (String, Type) = {
+    if(lines.isEmpty) return ("", Type.Undefined());
     var newenv = env;
-    val defstring: String = lines.head match {
-      case Expr.SetVal(Expr.Ident(name), value) => convert(value, reg, env) + setval(name, env);
-      case Expr.DefVal( Expr.Ident(name)) => newenv = newVar(name, newenv); ""
+    var defstring: String = lines.head match {
+      case Expr.SetVal(Expr.Ident(name), value) => {
+        val converted = convert(value, reg, env);
+        val modified = setval(name, converted._2, env)
+        newenv = modified._2
+        converted._1 + modified._1
+      };
+      case Expr.DefVal( Expr.Ident(name)) => newenv = newVar(name, Type.Undefined(), newenv); ""
       case Expr.Print(toPrint) => printInterp(toPrint, env);
       case Expr.If(condition, ifTrue, ifFalse) => {
         val trueLabel = s"if_${ifCounter}_true"
@@ -260,11 +280,11 @@ object ToAssembly {
     }
     if(lines.tail.nonEmpty) {
       lineNr+=1;
-      defstring + convert(Expr.Block(lines.tail), defaultReg, newenv)
+      defstring += convert(Expr.Block(lines.tail), defaultReg, newenv)._1
     }
-    else defstring;
+    (defstring, Type.Undefined());
   }
-  private def convertCondition(input: Expr, reg: List[String], env: Map[String, Int], orMode: Boolean, trueLabel: String, falseLabel: String): String = {
+  private def convertCondition(input: Expr, reg: List[String], env: Env, orMode: Boolean, trueLabel: String, falseLabel: String): String = {
     def compare(left: Expr, right: Expr): String = binOpTemplate(left, right, "cmp", reg, env)
     val newtrueLabel = s"cond_${subconditionCounter}_true"
     val newfalseLabel = s"cond_${subconditionCounter}_false"
@@ -298,29 +318,37 @@ object ToAssembly {
     }
     ret
   }
-  //private def conditionParse(input: Expr, reg: List[String], env: Map[String, Int], )
-  def setval(name: String, env: Map[String, Int]): String = {
-    s"mov qword ${lookup(name, env)}, rax\n"
+  def setval(name: String, raxType: Type, env: Env): (String, Env) = {
+    val look = lookup(name, env);
+    var newenv = env;
+    if(look._2.varType != raxType) {
+      if(look._2.varType == Type.Undefined()) newenv = env.map(x=>if(x._1==name) (x._1, Variable(x._2.pointer, raxType)) else x)
+      else throw new Exception(s"trying to set variable of type ${look._2.varType} to $raxType")
+    }
+    (s"mov qword ${look._1}, rax\n", newenv)
   }
 
-  def lookup(tofind: String, env: Map[String, Int]): String = s"[rsp+${lookupOffset(tofind, env)}]"
-  def lookupOffset(tofind: String, env: Map[String, Int]): Int = env.get(tofind) match {
+  def lookup(tofind: String, env: Env): (String, Variable) = {
+    val ret = lookupOffset(tofind, env)
+    (s"[rsp+${ret.pointer}]", ret)
+  }
+  def lookupOffset(tofind: String, env: Env): Variable = env.get(tofind) match {
     case Some(v) => v
     case None => throw new Exception(s"variable \"${tofind}\" undefined")
   }
-  def newVar(name: String, env: Map[String, Int]) : Map[String, Int] = {
+  def newVar(name: String, varType: Type, env: Env) : Env = {
     if(env.contains(name)) throw new Exception(s"variable \"${name}\" already defined")
-    val newOffset = if(env.isEmpty) 0 else env.values.max
-    env + (name -> (newOffset + 8))
+    val newOffset: Int = if(env.isEmpty) 0 else env.values.toList.map(x=>x.pointer).max
+    env + (name -> Variable(newOffset + 8, varType))
   }
-  def mulTemplate(left: Expr, right: Expr, command: String, reg: List[String], env: Map[String, Int]): String = {
-    val leftout = convert(left, reg, env);
-    val rightout = convert(right, reg.tail, env);
+  def mulTemplate(left: Expr, right: Expr, command: String, reg: List[String], env: Env): String = {
+    val leftout = convert(left, reg, env)._1;
+    val rightout = convert(right, reg.tail, env)._1;
     leftout + rightout + s"${command} ${reg.tail.head}\n";
   }
-  def binOpTemplate(left: Expr, right: Expr, command: String, reg: List[String], env: Map[String, Int]): String = {
-    val leftout = convert(left, reg, env);
-    val rightout = convert(right, reg.tail, env);
+  def binOpTemplate(left: Expr, right: Expr, command: String, reg: List[String], env: Env): String = {
+    val leftout = convert(left, reg, env)._1;
+    val rightout = convert(right, reg.tail, env)._2;
     leftout + rightout + s"${command} ${reg.head}, ${reg.tail.head}\n";
   }
   def printTemplate(format: String): String = {
@@ -331,12 +359,16 @@ object ToAssembly {
       |call printf
       |""".stripMargin
   }
-  def printInterp(toPrint: Expr, env: Map[String, Int]): String = toPrint match {
-      case Expr.Num(value) => s"mov rax, 0${value}d\n" + printTemplate("format_num");
-      case Expr.Ident(value) => s"mov rax, ${lookup(value, env)}\n" + printTemplate("format_num");
-      case _ => throw new Exception(toPrint.toString + " not recognized in print")
+  def printInterp(toPrint: Expr, env: Env): String = {
+    val converted = convert(toPrint, defaultReg, env)
+    converted._2 match {
+      case Type.Num() => converted._1 + printTemplate("format_num");
+      case _ => throw new Exception(s"input of type ${converted._2} not recognized in print")
+    }
   }
-  type Env = Map[String, Int]
-  case class Variable(stackPointer: Int, varType: String)
+
+  type Env = Map[String, Variable]
+  case class Variable(pointer: Int, varType: Type)
 }
+
 
