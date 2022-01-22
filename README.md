@@ -124,11 +124,12 @@ will be generated in `compiled/hello.asm` (do not ask why I named it that).
 * print function
 * if/else (&&, ||, ==, >, <, !, !=, >=, <=), forced parenthesis
 * While loops
+* Arrays
 
 ### To do
 <div id="todo"></div>
 
-* Arrays
+
 * Functions
 * Loops (for)
 * Types
