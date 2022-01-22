@@ -35,7 +35,7 @@ object Expr{
   case class ExtendBlock(lines: List[Expr]) extends Expr
   case class While(condition: Expr, execute: Expr.Block) extends Expr
 
-  case class GetArray(array: Array, index: Int) extends Expr
+  case class GetArray(array: Ident, index: Int) extends Expr
   case class Array(startPointer: StackVar, size: Int) extends Expr
   case class DefineArray(size: Int) extends Expr
 
@@ -54,15 +54,22 @@ object Parser {
     case _ => acc :+ el;
   } )).map(x=>Expr.Block(x))
   def line[_: P]:P[Expr] = P(expr ~/ ";")
-  def expr[_: P]: P[Expr] = P( defAndSetVal | defVal | setVal | IfOp | whileLoop | print)
+  def expr[_: P]: P[Expr] = P( arrayDef | defAndSetVal | defVal | setVal | IfOp | whileLoop | print)
 
-  def prefixExpr[_: P]: P[Expr] = P( parens | number | ident | constant | str)
+  def prefixExpr[_: P]: P[Expr] = P( parens | getArray | number | ident | constant | str)
 
   def defVal[_: P] = P("def " ~ ident).map(x => Expr.DefVal(x))
   def setVal[_: P] = P(ident ~ "=" ~ prefixExpr).map(x => Expr.SetVal(x._1, x._2))
   def defAndSetVal[_: P] = P( "def " ~ ident ~ "=" ~ prefixExpr).map(x => Expr.ExtendBlock(List(Expr.DefVal(x._1), Expr.SetVal(x._1, x._2))))
 
-
+  def arrayDef[_: P] = P("def_arr " ~/ ident ~ "[" ~ number ~ "]").map(x => {
+    if(x._2.value < 0) throw new ParseException("negative array size");
+    Expr.ExtendBlock(List(
+      Expr.DefVal(x._1),
+      Expr.SetVal(x._1, Expr.DefineArray(x._2.value))
+    ));
+  })
+  def getArray[_: P]: P[Expr.GetArray] = P(ident ~ "[" ~/ number ~ "]").map((x) => Expr.GetArray(x._1, x._2.value))
 
   def parens[_: P] = P("(" ~ binOp ~ ")")
 
@@ -183,6 +190,7 @@ object ToAssembly {
     var converted =
       """ global main
         | extern printf
+        | extern calloc
         | section .text
         |main:
         | sub rsp, 256
@@ -212,44 +220,49 @@ object ToAssembly {
       case Expr.Mult(left, right) => mulTemplate(left, right, "imul", reg, env)
       case Expr.Ident(name) => s"mov ${reg.head}, ${lookup(name, env)}\n"
       //case Expr.Div(left, right) => mulTemplate(left, right, "idiv", reg)
-      case Expr.Block(lines) => {
-        if(lines.isEmpty) return "";
-        var newenv = env;
-        val defstring: String = lines.head match {
-          case Expr.SetVal(Expr.Ident(name), value) => convert(value, reg, env) + setval(name, env);
-          case Expr.DefVal( Expr.Ident(name)) => newenv = newVar(name, newenv); ""
-          case Expr.Print(toPrint) => printInterp(toPrint, env);
-          case Expr.If(condition, ifTrue, ifFalse) => {
-            val trueLabel = s"if_${ifCounter}_true"
-            val falseLabel = s"if_${ifCounter}_false"
-            val endLabel = s"if_${ifCounter}_end"
-            val ret = convertCondition(condition, reg, env, orMode = false, trueLabel, falseLabel) + s"${trueLabel}:\n" + convert(ifTrue, reg, env) +
-              s"jmp ${endLabel}\n" + s"${falseLabel}:\n" + convert(ifFalse, reg, env) + s"${endLabel}:\n"
-            ifCounter += 1;
-            ret
-          }
-          case Expr.While(condition, execute) => {
-            val startLabel = s"while_${ifCounter}_start"
-            val trueLabel = s"while_${ifCounter}_true"
-            val endLabel = s"while_${ifCounter}_end"
-            val ret = s"${startLabel}:\n" + convertCondition(condition, reg, env, orMode = false, trueLabel, endLabel) + s"${trueLabel}:\n" + convert(execute, reg, env) +
-              s"jmp ${startLabel}\n" + s"${endLabel}:\n"
-            ifCounter += 1;
-            ret
-          }
-          case _ => throw new Exception(lines.head.toString + " should not be in block lines")
-        }
-        if(lines.tail.nonEmpty) {
-          lineNr+=1;
-          defstring + convert(Expr.Block(lines.tail), defaultReg, newenv)
-        }
-        else defstring;
+      case Expr.Block(lines) => convertBlock(lines, reg, env);
+      case Expr.DefineArray(size) => {
+        s"mov rdi, ${size}\n" + s"mov rsi, 8\n" + "call calloc\n"
       }
-
-
+      case Expr.GetArray(name, index) => {
+       convert(name, reg, env) + s"mov ${reg.tail.head}, ${reg.head}\n" + s"mov ${reg.head}, [${reg.tail.head}+${index*8}]\n"
+      }
       case Expr.Nothing() => "";
       case _ => throw new Exception ("not interpreted yet :(");
     }
+  }
+  private def convertBlock(lines: List[Expr], reg: List[String], env: Map[String, Int]): String = {
+    if(lines.isEmpty) return "";
+    var newenv = env;
+    val defstring: String = lines.head match {
+      case Expr.SetVal(Expr.Ident(name), value) => convert(value, reg, env) + setval(name, env);
+      case Expr.DefVal( Expr.Ident(name)) => newenv = newVar(name, newenv); ""
+      case Expr.Print(toPrint) => printInterp(toPrint, env);
+      case Expr.If(condition, ifTrue, ifFalse) => {
+        val trueLabel = s"if_${ifCounter}_true"
+        val falseLabel = s"if_${ifCounter}_false"
+        val endLabel = s"if_${ifCounter}_end"
+        val ret = convertCondition(condition, reg, env, orMode = false, trueLabel, falseLabel) + s"${trueLabel}:\n" + convert(ifTrue, reg, env) +
+          s"jmp ${endLabel}\n" + s"${falseLabel}:\n" + convert(ifFalse, reg, env) + s"${endLabel}:\n"
+        ifCounter += 1;
+        ret
+      }
+      case Expr.While(condition, execute) => {
+        val startLabel = s"while_${ifCounter}_start"
+        val trueLabel = s"while_${ifCounter}_true"
+        val endLabel = s"while_${ifCounter}_end"
+        val ret = s"${startLabel}:\n" + convertCondition(condition, reg, env, orMode = false, trueLabel, endLabel) + s"${trueLabel}:\n" + convert(execute, reg, env) +
+          s"jmp ${startLabel}\n" + s"${endLabel}:\n"
+        ifCounter += 1;
+        ret
+      }
+      case _ => throw new Exception(lines.head.toString + " should not be in block lines")
+    }
+    if(lines.tail.nonEmpty) {
+      lineNr+=1;
+      defstring + convert(Expr.Block(lines.tail), defaultReg, newenv)
+    }
+    else defstring;
   }
   private def convertCondition(input: Expr, reg: List[String], env: Map[String, Int], orMode: Boolean, trueLabel: String, falseLabel: String): String = {
     def compare(left: Expr, right: Expr): String = binOpTemplate(left, right, "cmp", reg, env)
@@ -323,5 +336,7 @@ object ToAssembly {
       case Expr.Ident(value) => s"mov rax, ${lookup(value, env)}\n" + printTemplate("format_num");
       case _ => throw new Exception(toPrint.toString + " not recognized in print")
   }
+  type Env = Map[String, Int]
+  case class Variable(stackPointer: Int, varType: String)
 }
 
