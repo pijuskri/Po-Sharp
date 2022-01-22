@@ -1,0 +1,5 @@
+{
+ def_arr a[8];
+ def b = a[0];
+ print(b);
+}

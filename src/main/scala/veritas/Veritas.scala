@@ -9,6 +9,25 @@ import scala.reflect.internal.util.ScalaClassLoader
 import scala.sys.process.Process
 import io.AnsiColor._
 
+class PoSharpScript(code: String) {
+  private var expected = ""
+
+  def ShouldBe(expected: String): PoSharpScript = {
+    this.expected = expected
+    this
+  }
+
+  def Run(): (Boolean, String) = {
+    val output = Veritas.GetOutput(code)
+
+    if (expected == output) {
+      (true, expected)
+    } else {
+      (false, expected)
+    }
+  }
+}
+
 object Veritas {
   def main(args: Array[String]): Unit = {
     RunTests()
@@ -57,11 +76,11 @@ object Veritas {
           .filter(m => m.getName.toLowerCase().contains("test"))
           .foreach(el => {
 
-            val output = el.invoke(instance)
-            if (output.asInstanceOf[Boolean]) {
-              out.append(s"${el.getName}: $GREEN[PASSED]$RESET")
+            val (output, actual) = el.invoke(instance).asInstanceOf[(Boolean, String)]
+            if (output) {
+              out.append(s"${el.getName}: $GREEN[PASSED]$RESET\n")
             } else {
-              out.append(s"${el.getName}: $RED[FAILED]$RESET")
+              out.append(s"${el.getName}: $RED[FAILED]$RESET | was $actual\n")
               exitCode = 1
             }
           })

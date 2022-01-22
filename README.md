@@ -102,10 +102,17 @@ will be generated in `compiled/hello.asm` (do not ask why I named it that).
 
 ``` 
 {
-    def a;
-    a = 5;
-    a = (a + 5) * 2;
-    print(a);
+    /*
+     Functionless power function b^a
+     */
+    def a = 10;
+    def b = 2;
+    def c = b;
+    while (a > 1) {
+        b = (b * c);
+        a = (a - 1);
+    };
+    print(b);
 }
 ```
 
@@ -115,15 +122,15 @@ will be generated in `compiled/hello.asm` (do not ask why I named it that).
 * Integer arithmetic (with forced parenthesis for subexpressions)
 * variable definition and assignment
 * print function
-* if/else (&&, ||, ==, >, <), forced parenthesis
+* if/else (&&, ||, ==, >, <, !, !=, >=, <=), forced parenthesis
+* While loops
 
 ### To do
 <div id="todo"></div>
 
-* If/else(!, !=, >=, <=)
-* Loops
-* Functions
 * Arrays
+* Functions
+* Loops (for)
 * Types
 * Float support
 * Strings
