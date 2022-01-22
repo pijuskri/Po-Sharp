@@ -147,7 +147,7 @@ object Parser {
   def trueC[_: P]: P[Expr.True] = P("true").map(_ => Expr.True())
   def falseC[_: P]: P[Expr.False] = P("false").map(_ => Expr.False())
 
-  def print[_: P]: P[Expr.Print] = P("print" ~/ "(" ~/ prefixExpr ~ ")").map(Expr.Print)
+  def print[_: P]: P[Expr.Print] = P("print" ~/ "(" ~/ ( NoCut(binOp) | prefixExpr ) ~ ")").map(Expr.Print)
 
   class ParseException(s: String) extends RuntimeException(s)
   val reservedKeywords = List("def", "if", "while")
@@ -188,7 +188,7 @@ object Main extends App {
   }
   def readFile(directoryPath: String, filename: String): String = {
     val source = Source.fromFile(new File(directoryPath+filename))
-    val codetxt = source.getLines.mkString
+    val codetxt = source.mkString
     source.close()
     codetxt
   }
@@ -269,9 +269,9 @@ object ToAssembly {
         val trueLabel = s"if_${ifCounter}_true"
         val falseLabel = s"if_${ifCounter}_false"
         val endLabel = s"if_${ifCounter}_end"
-        val ret = convertCondition(condition, reg, env, orMode = false, trueLabel, falseLabel) + s"${trueLabel}:\n" + convert(ifTrue, reg, env) +
-          s"jmp ${endLabel}\n" + s"${falseLabel}:\n" + convert(ifFalse, reg, env) + s"${endLabel}:\n"
         ifCounter += 1;
+        val ret = convertCondition(condition, reg, env, orMode = false, trueLabel, falseLabel) + s"${trueLabel}:\n" + convert(ifTrue, reg, env)._1 +
+          s"jmp ${endLabel}\n" + s"${falseLabel}:\n" + convert(ifFalse, reg, env)._1 + s"${endLabel}:\n"
         ret
       }
       case Expr.While(condition, execute) => {
@@ -361,7 +361,7 @@ object ToAssembly {
   }
   def binOpTemplate(left: Expr, right: Expr, command: String, reg: List[String], env: Env): String = {
     val leftout = convert(left, reg, env)._1;
-    val rightout = convert(right, reg.tail, env)._2;
+    val rightout = convert(right, reg.tail, env)._1;
     leftout + rightout + s"${command} ${reg.head}, ${reg.tail.head}\n";
   }
   def printTemplate(format: String): String = {
