@@ -116,6 +116,8 @@ will be generated in `compiled/hello.asm` (do not ask why I named it that).
 }
 ```
 
+[Full guide to the language](docs/Guide.md)
+
 ### Progress
 <div id="progress"></div>
 
@@ -124,18 +126,20 @@ will be generated in `compiled/hello.asm` (do not ask why I named it that).
 * print function
 * if/else (&&, ||, ==, >, <, !, !=, >=, <=), forced parenthesis
 * While loops
+* Arrays
+* Types(integers, arrays)
 
 ### To do
 <div id="todo"></div>
 
-* Arrays
+* Strings
 * Functions
 * Loops (for)
-* Types
 * Float support
-* Strings
+* user input
 * Garbage collector
 * Objects/structs
+* File i/o
 * Optimisations with register/stack combinations
 
 
