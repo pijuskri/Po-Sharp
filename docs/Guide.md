@@ -84,7 +84,7 @@ would be able to write Po# code.
 
 ```
 {
-    def a[8]; // similar to variable definition, but in [] the array size is specified
+    def_arr a[8]; // similar to variable definition, but in [] the array size is specified
               // arrays are always initialized with 0
               // currently only support numbers
     a[0] = 5; // rest of the syntax is the same as c

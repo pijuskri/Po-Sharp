@@ -1,4 +1,4 @@
-{
+def main(gamer) {
  def_arr a[8];
  print(a[0]);
  a[0] = 5;

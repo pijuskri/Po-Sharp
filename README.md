@@ -139,6 +139,8 @@ will be generated in `compiled/hello.asm` (do not ask why I named it that).
 * user input
 * Garbage collector
 * Objects/structs
+* multiple files
+* packages
 * File i/o
 * Optimisations with register/stack combinations
 

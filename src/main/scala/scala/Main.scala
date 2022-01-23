@@ -37,14 +37,13 @@ object Expr{
 
   case class GetArray(array: Ident, index: Int) extends Expr
   case class SetArray(array: Ident, index: Int, value: Expr) extends Expr
-  //case class Array(startPointer: StackVar, size: Int) extends Expr
   case class DefineArray(size: Int) extends Expr
 
-  case class StackVar(offset: Int) extends Expr
-  //case class Local(name: String, assigned: Expr, body: Expr) extends Expr
-  //case class Func(argNames: Seq[String], body: Expr) extends Expr
-  //case class Call(expr: Expr, args: Seq[Expr]) extends Expr
+  //case class StackVar(offset: Int) extends Expr
+  case class Func(name: String, argNames: List[InputVar], body: Expr.Block) extends Expr
+  case class CallF(expr: Expr, args: List[Expr]) extends Expr
 
+  case class TopLevel(functions: List[Func]) extends Expr
   case class Nothing() extends Expr
 }
 
@@ -55,14 +54,26 @@ object Type {
   case class Character() extends Type
   case class Array(size: Int) extends Type
 }
+case class InputVar(name: String, varType: Type)
 
 object Parser {
 
+  def topLevel[_: P]: P[Expr.TopLevel] = P(function.rep).map(x=>Expr.TopLevel(x.toList))
+  def function[_: P]: P[Expr.Func] = P("def " ~/ ident ~ "(" ~/ ident.? ~ (ident ~ ",").rep ~ ")" ~ block).map{
+    case (name, Some(firstarg), restargs, body) => {
+      val args = InputVar(firstarg.name, Type.Undefined()) +: restargs.toList.map(x=>InputVar(x.name, Type.Undefined()));
+      Expr.Func(name.name, args, body)
+    }
+    case (name, None, Seq(), body) => {
+      Expr.Func(name.name, List(), body)
+    }
+  }
+  //def parseType[_: P] : P[Type] = P(ident ~ "(" ~/ ")")
   def block[_: P] = P("{" ~/ line.rep(0) ~ "}").map ( lines => lines.foldLeft(List(): List[Expr])( (acc, el) => el match {
     case Expr.ExtendBlock(sub) => acc ::: sub;
     case _ => acc :+ el;
   } )).map(x=>Expr.Block(x))
-  def line[_: P]:P[Expr] = P(expr ~/ ";")
+  def line[_: P]: P[Expr] = P(expr ~/ ";")
   def expr[_: P]: P[Expr] = P( arrayDef | defAndSetVal | defVal | setArray | setVal | IfOp | whileLoop | print)
 
   def prefixExpr[_: P]: P[Expr] = P( parens | getArray | number | ident | constant | str)
@@ -156,7 +167,7 @@ object Parser {
   }
 
   def parseInput(input: String): Expr = {
-    val parsed = fastparse.parse(input, block(_));
+    val parsed = fastparse.parse(input, topLevel(_));
     parsed match {
       case Parsed.Success(expr, n) => expr;
       case t: Parsed.Failure => {println(t.trace().longAggregateMsg); throw new ParseException("parsing fail");}
@@ -166,9 +177,6 @@ object Parser {
 }
 
 object Main extends App {
-  //def divMul[_: P] = P( prefixExpr ~ CharIn("*/").! ~/ prefixExpr ).map( token => Expr.BinOp(token._2, token._1, token._3))
-  //def addSub[_: P] = P( prefixExpr ~ CharIn("+\\-").! ~/ prefixExpr ).map( token => Expr.BinOp(token._2, token._1, token._3))
-  //{def a = 3; def c = 5; def b = 0; if( (a == 2) || (c == 5) ) {b = 2;} else {b = 3;};}
   val toCompile = readFile("", "toCompile.txt")
   val parsed = Parser.parseInput(toCompile);
   println(parsed);
@@ -197,6 +205,7 @@ object Main extends App {
 object ToAssembly {
   val defaultReg = List("rax", "rdi", "rsi", "rdx", "rcx", "r8", "r9", "r10", "r11")
   def convertMain(input: Expr): String = {
+    /*
     var converted =
       """ global main
         | extern printf
@@ -207,22 +216,31 @@ object ToAssembly {
         | sub rsp, 256
         |""".stripMargin;
     converted += convert(input, defaultReg, Map() )._1;
-    /*
-    converted +=
-        """mov rdi, format_num
-        |mov rsi, rax
-        |xor rax, rax
-        |call printf
-        |""".stripMargin
-     */
     converted += "add rsp, 256\n"
     converted += "  mov rax, 0\n  ret\n"
+    converted += "format_num:\n        db  \"%d\", 10, 0"
+    converted
+     */
+    var converted =
+      """ global main
+        | extern printf
+        | extern calloc
+        | extern free
+        | section .text
+        |""".stripMargin;
+    input match { case x: Expr.TopLevel => {
+      declareFunctions(x);
+      converted += defineFunctions(x);
+    }}
+
+    //converted += convert(input, defaultReg, Map() )._1;
     converted += "format_num:\n        db  \"%d\", 10, 0"
     converted
   }
   var lineNr = 0;
   var ifCounter = 0;
   var subconditionCounter: Int = 0;
+  var functions: List[String] = List();
   private def convert(input: Expr, reg: List[String], env: Env): (String, Type) = {
     input match {
       case Expr.Num(value) => (s"mov ${reg.head}, 0${value}d\n", Type.Num())
@@ -325,6 +343,30 @@ object ToAssembly {
       }
     }
     ret
+  }
+  private def declareFunctions(input: Expr.TopLevel): Unit = {
+    functions = input.functions.map(x=>x.name)
+  }
+  val functionCallReg = List( "rdi", "rsi", "rdx", "rcx", "r8", "r9")
+  private def defineFunctions(input: Expr.TopLevel): String = {
+    input.functions.map(function => {
+     var ret = s"${function.name}:\n" +
+      """ push rbp
+       | mov rbp, rsp
+       | sub rsp, 256
+       |""".stripMargin;
+      var env: Env = Map()
+      var regArgs = functionCallReg;
+      ret += function.argNames.map(arg => {
+        env = newVar(arg.name, arg.varType, env)
+        val moveVar = s"mov qword ${lookup(arg.name, env)._1}, ${regArgs.head}\n"
+        regArgs = regArgs.tail;
+        moveVar
+      }).mkString
+      ret += convert(function.body, defaultReg, env)._1
+      ret += "leave\nret\n"
+      ret
+    }).mkString
   }
   def setval(name: String, raxType: Type, env: Env): (String, Env) = {
     val look = lookup(name, env);
