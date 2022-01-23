@@ -137,6 +137,7 @@ will be generated in `compiled/hello.asm` (do not ask why I named it that).
 * Loops (for)
 * Float support
 * user input
+* typeof
 * Garbage collector
 * Objects/structs
 * multiple files

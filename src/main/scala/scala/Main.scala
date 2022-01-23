@@ -41,7 +41,8 @@ object Expr{
 
   //case class StackVar(offset: Int) extends Expr
   case class Func(name: String, argNames: List[InputVar], body: Expr.Block) extends Expr
-  case class CallF(expr: Expr, args: List[Expr]) extends Expr
+  case class CallF(name: String, args: List[Expr]) extends Expr
+  case class Return(value: Expr) extends Expr
 
   case class TopLevel(functions: List[Func]) extends Expr
   case class Nothing() extends Expr
@@ -59,14 +60,9 @@ case class InputVar(name: String, varType: Type)
 object Parser {
 
   def topLevel[_: P]: P[Expr.TopLevel] = P(function.rep).map(x=>Expr.TopLevel(x.toList))
-  def function[_: P]: P[Expr.Func] = P("def " ~/ ident ~ "(" ~/ ident.? ~ (ident ~ ",").rep ~ ")" ~ block).map{
-    case (name, Some(firstarg), restargs, body) => {
-      val args = InputVar(firstarg.name, Type.Undefined()) +: restargs.toList.map(x=>InputVar(x.name, Type.Undefined()));
-      Expr.Func(name.name, args, body)
-    }
-    case (name, None, Seq(), body) => {
-      Expr.Func(name.name, List(), body)
-    }
+  def function[_: P]: P[Expr.Func] = P("def " ~/ ident ~ "(" ~/ ident.rep(sep = ",") ~ ")" ~ block).map{
+    case (name, args, body) =>
+      Expr.Func(name.name, args.toList.map(x=>InputVar(x.name, Type.Undefined())), body)
   }
   //def parseType[_: P] : P[Type] = P(ident ~ "(" ~/ ")")
   def block[_: P] = P("{" ~/ line.rep(0) ~ "}").map ( lines => lines.foldLeft(List(): List[Expr])( (acc, el) => el match {
@@ -74,9 +70,9 @@ object Parser {
     case _ => acc :+ el;
   } )).map(x=>Expr.Block(x))
   def line[_: P]: P[Expr] = P(expr ~/ ";")
-  def expr[_: P]: P[Expr] = P( arrayDef | defAndSetVal | defVal | setArray | setVal | IfOp | whileLoop | print)
+  def expr[_: P]: P[Expr] = P( arrayDef | defAndSetVal | defVal | setArray | setVal | retFunction | IfOp | whileLoop | print)
 
-  def prefixExpr[_: P]: P[Expr] = P( parens | getArray | number | ident | constant | str)
+  def prefixExpr[_: P]: P[Expr] = P( parens | getArray | callFunction | number | ident | constant | str)
 
   def defVal[_: P] = P("def " ~ ident).map(x => Expr.DefVal(x))
   def setVal[_: P] = P(ident ~ "=" ~ prefixExpr).map(x => Expr.SetVal(x._1, x._2))
@@ -92,6 +88,8 @@ object Parser {
   def getArray[_: P]: P[Expr.GetArray] = P(ident ~ "[" ~/ number ~ "]").map((x) => Expr.GetArray(x._1, x._2.value))
   def setArray[_: P]: P[Expr.SetArray] = P(ident ~ "[" ~/ number ~ "]" ~/ "=" ~ prefixExpr).map((x) => Expr.SetArray(x._1, x._2.value, x._3))
 
+  def retFunction[_: P]: P[Expr.Return] = P("return" ~/ prefixExpr).map(Expr.Return)
+
   def parens[_: P] = P("(" ~ binOp ~ ")")
 
   /*
@@ -106,6 +104,10 @@ object Parser {
     case _ => throw new ParseException("not bin p[")
   })
    */
+
+  def callFunction[_: P]: P[Expr.CallF] = P( ident ~ "(" ~/ prefixExpr.rep(sep = ",") ~ ")" ).map{
+    case (name, args) => Expr.CallF(name.name, args.toList);
+  }
 
   def binOp[_: P] = P( prefixExpr ~ ( StringIn("+", "-", "*", "/", "==", ">", "<").! ~/ prefixExpr).rep(1)).map(list => parseBinOpList(list._1, list._2.toList))
 
@@ -161,7 +163,7 @@ object Parser {
   def print[_: P]: P[Expr.Print] = P("print" ~/ "(" ~/ ( NoCut(binOp) | prefixExpr ) ~ ")").map(Expr.Print)
 
   class ParseException(s: String) extends RuntimeException(s)
-  val reservedKeywords = List("def", "if", "while")
+  val reservedKeywords = List("def", "if", "while", "true", "false")
   def checkForReservedKeyword(input: Expr.Ident): Unit ={
     if(reservedKeywords.contains(input.name)) throw new ParseException(s"${input.name} is a reserved keyword");
   }
@@ -240,7 +242,7 @@ object ToAssembly {
   var lineNr = 0;
   var ifCounter = 0;
   var subconditionCounter: Int = 0;
-  var functions: List[String] = List();
+  var functions: List[FunctionInfo] = List();
   private def convert(input: Expr, reg: List[String], env: Env): (String, Type) = {
     input match {
       case Expr.Num(value) => (s"mov ${reg.head}, 0${value}d\n", Type.Num())
@@ -262,6 +264,28 @@ object ToAssembly {
           (code + s"mov ${reg.tail.head}, ${reg.head}\n" + s"mov ${reg.head}, [${reg.tail.head}+${index*8}]\n", Type.Num())
         }
         case (code, varType) => throw new Exception(s"trying to access variable ${name.name} as an array, has type $varType")
+      }
+      case Expr.CallF(name, args) => functions.find(x=>x.name == name) match {
+        case Some(FunctionInfo(p, argTypes)) => {
+          if(argTypes.length != args.length) throw new Exception (s"wrong number of arguments: expected ${argTypes.length}, got ${args.length}")
+          val usedReg = defaultReg.filter(x => !reg.contains(x));
+          var ret = usedReg.map(x=>s"push $x\n").mkString
+          ret += args.zipWithIndex.map{case (arg, index) => {
+            //TODO add type checking
+            convert(arg, reg, env)._1 + s"push ${reg.head}\n"
+          }}.mkString
+          ret += args.zipWithIndex.reverse.map{case (arg, index) => s"pop ${functionCallReg(index)}\n"}.mkString
+          /*
+          ret += args.foldLeft(("", functionCallReg))((acc, arg) => {
+            acc + convert(arg, )
+          })
+           */
+          ret += s"call $name\n"
+          ret += s"mov ${reg.head}, rax\n"
+          ret += usedReg.reverse.map(x=>s"pop $x\n").mkString
+          (ret, Type.Num())
+        }
+        case None => throw new Exception (s"function of name $name undefined");
       }
       case Expr.Nothing() => ("", Type.Undefined());
       case _ => throw new Exception ("not interpreted yet :(");
@@ -300,6 +324,11 @@ object ToAssembly {
           s"jmp ${startLabel}\n" + s"${endLabel}:\n"
         ifCounter += 1;
         ret
+      }
+      case Expr.Return(value) => {
+        //TODO add type checking
+        val converted = convert(value, defaultReg, env)._1
+        converted + "leave\nret\n"
       }
       case _ => throw new Exception(lines.head.toString + " should not be in block lines")
     }
@@ -345,7 +374,7 @@ object ToAssembly {
     ret
   }
   private def declareFunctions(input: Expr.TopLevel): Unit = {
-    functions = input.functions.map(x=>x.name)
+    functions = input.functions.map(x=> FunctionInfo(x.name, x.argNames.map(y=>y.varType)))
   }
   val functionCallReg = List( "rdi", "rsi", "rdx", "rcx", "r8", "r9")
   private def defineFunctions(input: Expr.TopLevel): String = {
@@ -364,7 +393,7 @@ object ToAssembly {
         moveVar
       }).mkString
       ret += convert(function.body, defaultReg, env)._1
-      ret += "leave\nret\n"
+      //ret += "leave\nret\n"
       ret
     }).mkString
   }
@@ -427,6 +456,7 @@ object ToAssembly {
   })
 
   type Env = Map[String, Variable]
+  case class FunctionInfo(name: String, args: List[Type])
   case class Variable(pointer: Int, varType: Type)
 }
 

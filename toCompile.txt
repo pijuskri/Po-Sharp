@@ -1,6 +1,16 @@
-def main(gamer) {
- def_arr a[8];
+def main() {
+  def a = 0;
+  a = add(a);
+  print(a);
+  return 0;
+}
+def add(input) {
+  return (input + 1);
+}
+
+/*
+def_arr a[8];
  print(a[0]);
  a[0] = 5;
  print(a[0]);
-}
+*/
