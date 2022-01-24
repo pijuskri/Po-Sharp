@@ -5,7 +5,7 @@ build:
 	mkdir -p compiled && \
 	cd compiled/ && \
 	nasm -felf64 hello.asm && \
-	gcc -no-pie hello.o -o hello
+	gcc -O0 -ggdb -no-pie hello.o -o hello
 
 #compile and run asm 
 run: build
@@ -18,8 +18,8 @@ full: sbt run
 sbt: 
 	sbt --batch -Dsbt.server.forcestart=true run
 
-
 # for some example on the internet, the gcc compiler has issues
 standalone:
 	nasm -f elf hello.asm && ld -m elf_i386 hello.o -o hello && ./hello
 
+#valgrind --leak-check=full --track-origins=yes --dsymutil=yes ./hello

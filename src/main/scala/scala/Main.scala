@@ -237,6 +237,7 @@ object ToAssembly {
 
     //converted += convert(input, defaultReg, Map() )._1;
     converted += "format_num:\n        db  \"%d\", 10, 0"
+    //converted.split("\n").zipWithIndex.foldLeft("")((acc, v)=> acc +s"\nline${v._2}:\n"+ v._1)
     converted
   }
   var lineNr = 0;
@@ -275,11 +276,6 @@ object ToAssembly {
             convert(arg, reg, env)._1 + s"push ${reg.head}\n"
           }}.mkString
           ret += args.zipWithIndex.reverse.map{case (arg, index) => s"pop ${functionCallReg(index)}\n"}.mkString
-          /*
-          ret += args.foldLeft(("", functionCallReg))((acc, arg) => {
-            acc + convert(arg, )
-          })
-           */
           ret += s"call $name\n"
           ret += s"mov ${reg.head}, rax\n"
           ret += usedReg.reverse.map(x=>s"pop $x\n").mkString
@@ -414,7 +410,7 @@ object ToAssembly {
 
   def lookup(tofind: String, env: Env): (String, Variable) = {
     val ret = lookupOffset(tofind, env)
-    (s"[rsp+${ret.pointer}]", ret)
+    (s"[rbp-${ret.pointer}]", ret)
   }
   def lookupOffset(tofind: String, env: Env): Variable = env.get(tofind) match {
     case Some(v) => v
@@ -451,7 +447,7 @@ object ToAssembly {
     }
   }
   def freeMemory(env: Env): String = env.foldLeft("")((acc, entry) => entry._2.varType match {
-    case Type.Array(size) => acc + s"mov rdi, [rsp+${entry._2.pointer}]\n" + "call free\n";
+    case Type.Array(size) => acc + s"mov rdi, [rbp-${entry._2.pointer}]\n" + "call free\n";
     case _ => acc
   })
 

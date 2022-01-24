@@ -128,14 +128,15 @@ will be generated in `compiled/hello.asm` (do not ask why I named it that).
 * While loops
 * Arrays
 * Types(integers, arrays)
+* Functions
 
 ### To do
 <div id="todo"></div>
 
 * Strings
-* Functions
 * Loops (for)
 * Float support
+* Input filename (perhaps make compiled version for release)
 * user input
 * typeof
 * Garbage collector
