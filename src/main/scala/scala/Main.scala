@@ -40,7 +40,7 @@ object Expr{
   case class DefineArray(size: Int) extends Expr
 
   //case class StackVar(offset: Int) extends Expr
-  case class Func(name: String, argNames: List[InputVar], body: Expr.Block) extends Expr
+  case class Func(name: String, argNames: List[InputVar], retType: Type, body: Expr.Block) extends Expr
   case class CallF(name: String, args: List[Expr]) extends Expr
   case class Return(value: Expr) extends Expr
 
@@ -53,17 +53,23 @@ object Type {
   case class Undefined() extends Type
   case class Num() extends Type
   case class Character() extends Type
-  case class Array(size: Int) extends Type
+  case class Array(size: Int, elemType: Type) extends Type
 }
 case class InputVar(name: String, varType: Type)
 
 object Parser {
 
   def topLevel[_: P]: P[Expr.TopLevel] = P(function.rep).map(x=>Expr.TopLevel(x.toList))
-  def function[_: P]: P[Expr.Func] = P("def " ~/ ident ~ "(" ~/ ident.rep(sep = ",") ~ ")" ~ block).map{
-    case (name, args, body) =>
-      Expr.Func(name.name, args.toList.map(x=>InputVar(x.name, Type.Undefined())), body)
+  def function[_: P]: P[Expr.Func] = P("def " ~/ ident ~ "(" ~/ functionArgs ~ ")" ~/ typeDef.? ~ block).map{
+    case (name, args, retType, body) => {
+      val ret = retType match {
+        case Some(typ) => typ
+        case None => Type.Undefined()
+      }
+      Expr.Func(name.name, args, ret, body)
+    }
   }
+  def functionArgs[_: P]: P[List[InputVar]] = P( (ident ~ typeDef).rep(sep = ",")).map(x=>x.map(y=>InputVar(y._1.name, y._2)).toList)
   //def parseType[_: P] : P[Type] = P(ident ~ "(" ~/ ")")
   def block[_: P] = P("{" ~/ line.rep(0) ~ "}").map ( lines => lines.foldLeft(List(): List[Expr])( (acc, el) => el match {
     case Expr.ExtendBlock(sub) => acc ::: sub;
@@ -72,23 +78,32 @@ object Parser {
   def line[_: P]: P[Expr] = P(expr ~/ ";")
   def expr[_: P]: P[Expr] = P( arrayDef | defAndSetVal | defVal | setArray | setVal | retFunction | IfOp | whileLoop | print)
 
-  def prefixExpr[_: P]: P[Expr] = P( parens | getArray | callFunction | number | ident | constant | str)
+  def prefixExpr[_: P]: P[Expr] = P( parens | arrayDef | getArray | callFunction | number | ident | constant | str)
 
-  def defVal[_: P] = P("def " ~ ident).map(x => Expr.DefVal(x))
-  def setVal[_: P] = P(ident ~ "=" ~ prefixExpr).map(x => Expr.SetVal(x._1, x._2))
-  def defAndSetVal[_: P] = P( "def " ~ ident ~ "=" ~ prefixExpr).map(x => Expr.ExtendBlock(List(Expr.DefVal(x._1), Expr.SetVal(x._1, x._2))))
+  def defVal[_: P] = P("val " ~ ident).map(x => Expr.DefVal(x))
+  def setVal[_: P] = P(ident ~ "=" ~/ prefixExpr).map(x => Expr.SetVal(x._1, x._2))
+  def defAndSetVal[_: P] = P( "val " ~ ident ~ "=" ~ prefixExpr).map(x => Expr.ExtendBlock(List(Expr.DefVal(x._1), Expr.SetVal(x._1, x._2))))
 
-  def arrayDef[_: P] = P("def_arr " ~/ ident ~ "[" ~ number ~ "]").map(x => {
+  /*
+  def arrayDef[_: P] = P("val " ~ ident ~ "=" ~ "Array" ~/ "[" ~ number ~ "]").map(x => {
     if(x._2.value < 0) throw new ParseException("negative array size");
     Expr.ExtendBlock(List(
       Expr.DefVal(x._1),
       Expr.SetVal(x._1, Expr.DefineArray(x._2.value))
     ));
   })
+   */
+  def arrayDef[_: P]: P[Expr.DefineArray] = P("array" ~/ "[" ~/ number ~ "]").map(x=> Expr.DefineArray(x.value))
+
   def getArray[_: P]: P[Expr.GetArray] = P(ident ~ "[" ~/ number ~ "]").map((x) => Expr.GetArray(x._1, x._2.value))
   def setArray[_: P]: P[Expr.SetArray] = P(ident ~ "[" ~/ number ~ "]" ~/ "=" ~ prefixExpr).map((x) => Expr.SetArray(x._1, x._2.value, x._3))
 
   def retFunction[_: P]: P[Expr.Return] = P("return" ~/ prefixExpr).map(Expr.Return)
+
+  def typeDef[_: P]: P[Type] = P(":" ~/ StringIn("int", "char").!).map{
+    case "int" => Type.Num();
+    case "char" => Type.Character();
+  }
 
   def parens[_: P] = P("(" ~ binOp ~ ")")
 
@@ -113,17 +128,16 @@ object Parser {
 
   def parseBinOpList(initial: Expr, rest: List[(String, Expr)]): Expr = {
     rest.foldLeft(initial) {
-      case (left, (operator, right)) =>
-        operator match {
-          case "+" => Expr.Plus(left, right)
-          case "-" => Expr.Minus(left, right)
-          case "*" => Expr.Mult(left, right)
-          case "/" => Expr.Div(left, right)
-        }
+      case (left, (operator, right)) => operator match {
+        case "+" => Expr.Plus(left, right)
+        case "-" => Expr.Minus(left, right)
+        case "*" => Expr.Mult(left, right)
+        case "/" => Expr.Div(left, right)
+      }
     }
   }
 
-  def IfOp[_: P]: P[Expr.If] = P("if" ~ condition ~ block ~ elseOp.? ) .map{
+  def IfOp[_: P]: P[Expr.If] = P("if" ~/ condition ~/ block ~/ elseOp.? ) .map{
     case (cond, ex_true, Some(ex_else)) => Expr.If(cond, ex_true, ex_else);
     case (cond, ex_true, None) => Expr.If(cond, ex_true, Expr.Block(List()));
   }
@@ -163,7 +177,7 @@ object Parser {
   def print[_: P]: P[Expr.Print] = P("print" ~/ "(" ~/ ( NoCut(binOp) | prefixExpr ) ~ ")").map(Expr.Print)
 
   class ParseException(s: String) extends RuntimeException(s)
-  val reservedKeywords = List("def", "if", "while", "true", "false")
+  val reservedKeywords = List("def", "val", "if", "while", "true", "false", "array")
   def checkForReservedKeyword(input: Expr.Ident): Unit ={
     if(reservedKeywords.contains(input.name)) throw new ParseException(s"${input.name} is a reserved keyword");
   }
@@ -244,6 +258,7 @@ object ToAssembly {
   var ifCounter = 0;
   var subconditionCounter: Int = 0;
   var functions: List[FunctionInfo] = List();
+  var functionScope: FunctionInfo = FunctionInfo("main", List(), Type.Num());
   private def convert(input: Expr, reg: List[String], env: Env): (String, Type) = {
     input match {
       case Expr.Num(value) => (s"mov ${reg.head}, 0${value}d\n", Type.Num())
@@ -257,29 +272,30 @@ object ToAssembly {
       //case Expr.Div(left, right) => mulTemplate(left, right, "idiv", reg)
       case Expr.Block(lines) => convertBlock(lines, reg, env);
       case Expr.DefineArray(size) => {
-        (s"mov rdi, ${size}\n" + s"mov rsi, 8\n" + "call calloc\n", Type.Array(size))
+        (s"mov rdi, ${size}\n" + s"mov rsi, 8\n" + "call calloc\n", Type.Array(size, Type.Num()))
       }
       case Expr.GetArray(name, index) => convert(name, reg, env) match {
-        case (code, Type.Array(size)) => {
+        case (code, Type.Array(size, arrType)) => {
           if(index>=size) throw new Exception(s"array ${name.name} index out of bounds: $index")
-          (code + s"mov ${reg.tail.head}, ${reg.head}\n" + s"mov ${reg.head}, [${reg.tail.head}+${index*8}]\n", Type.Num())
+          (code + s"mov ${reg.tail.head}, ${reg.head}\n" + s"mov ${reg.head}, [${reg.tail.head}+${index*8}]\n", arrType)
         }
         case (code, varType) => throw new Exception(s"trying to access variable ${name.name} as an array, has type $varType")
       }
       case Expr.CallF(name, args) => functions.find(x=>x.name == name) match {
-        case Some(FunctionInfo(p, argTypes)) => {
+        case Some(FunctionInfo(p, argTypes, retType)) => {
           if(argTypes.length != args.length) throw new Exception (s"wrong number of arguments: expected ${argTypes.length}, got ${args.length}")
           val usedReg = defaultReg.filter(x => !reg.contains(x));
           var ret = usedReg.map(x=>s"push $x\n").mkString
           ret += args.zipWithIndex.map{case (arg, index) => {
-            //TODO add type checking
-            convert(arg, reg, env)._1 + s"push ${reg.head}\n"
+            val converted = convert(arg, reg, env)
+            if(converted._2 != argTypes(index)) throw new Exception (s"wrong argument type: expected ${argTypes(index)}, got ${converted._2}")
+            converted._1 + s"push ${reg.head}\n"
           }}.mkString
           ret += args.zipWithIndex.reverse.map{case (arg, index) => s"pop ${functionCallReg(index)}\n"}.mkString
           ret += s"call $name\n"
           ret += s"mov ${reg.head}, rax\n"
           ret += usedReg.reverse.map(x=>s"pop $x\n").mkString
-          (ret, Type.Num())
+          (ret, retType)
         }
         case None => throw new Exception (s"function of name $name undefined");
       }
@@ -299,7 +315,9 @@ object ToAssembly {
       };
       case Expr.SetArray(Expr.Ident(name), index, value) => {
         val converted = convert(value, reg, env);
-        converted._1 + setArray(name, index, converted._2, env)
+        val arr = setArray(name, index, converted._2, env)
+        newenv = arr._2;
+        converted._1 + arr._1
       };
       case Expr.DefVal( Expr.Ident(name)) => newenv = newVar(name, Type.Undefined(), newenv); ""
       case Expr.Print(toPrint) => printInterp(toPrint, env);
@@ -322,9 +340,9 @@ object ToAssembly {
         ret
       }
       case Expr.Return(value) => {
-        //TODO add type checking
-        val converted = convert(value, defaultReg, env)._1
-        converted + "leave\nret\n"
+        val converted = convert(value, defaultReg, env)
+        if(functionScope.retType != converted._2) throw new Exception(s"Wrong return argument: function ${functionScope.name} expects ${functionScope.retType}, got ${converted._2}")
+        converted._1 + "leave\nret\n"
       }
       case _ => throw new Exception(lines.head.toString + " should not be in block lines")
     }
@@ -370,12 +388,14 @@ object ToAssembly {
     ret
   }
   private def declareFunctions(input: Expr.TopLevel): Unit = {
-    functions = input.functions.map(x=> FunctionInfo(x.name, x.argNames.map(y=>y.varType)))
+    functions = input.functions.map(x=> FunctionInfo(x.name, x.argNames.map(y=>y.varType), x.retType))
   }
   val functionCallReg = List( "rdi", "rsi", "rdx", "rcx", "r8", "r9")
   private def defineFunctions(input: Expr.TopLevel): String = {
     input.functions.map(function => {
-     var ret = s"${function.name}:\n" +
+      val info = functions.find(x=>x.name == function.name).get;
+      functionScope = info;
+      var ret = s"${function.name}:\n" +
       """ push rbp
        | mov rbp, rsp
        | sub rsp, 256
@@ -389,7 +409,6 @@ object ToAssembly {
         moveVar
       }).mkString
       ret += convert(function.body, defaultReg, env)._1
-      //ret += "leave\nret\n"
       ret
     }).mkString
   }
@@ -402,10 +421,16 @@ object ToAssembly {
     }
     (s"mov qword ${look._1}, rax\n", newenv)
   }
-  def setArray(name: String, index: Int, raxType: Type, env: Env): String = {
-    val look = lookup(name, env);
-    if(raxType != Type.Num()) throw new Exception(s"trying to set variable of type ${look._2.varType} to $raxType");
-    s"mov rdi, ${look._1}\n" + s"mov [rdi+${index*8}], rax\n"
+  def setArray(name: String, index: Int, raxType: Type, env: Env): (String, Env) = lookup(name, env) match {
+    case (code, Variable(loc, Type.Array(size, elemType))) => {
+      if(index>=size) throw new Exception(s"array ${name} index out of bounds: $index")
+      var newenv = env;
+      if(elemType != raxType) {
+        if(elemType == Type.Undefined()) newenv = env.map(x=>if(x._1==name) (x._1, Variable(x._2.pointer, raxType)) else x)
+        else throw new Exception(s"trying to set array element of type ${elemType} to $raxType")
+      }
+      (s"mov rdi, ${code}\n" + s"mov [rdi+${index*8}], rax\n", newenv)
+    }
   }
 
   def lookup(tofind: String, env: Env): (String, Variable) = {
@@ -447,12 +472,12 @@ object ToAssembly {
     }
   }
   def freeMemory(env: Env): String = env.foldLeft("")((acc, entry) => entry._2.varType match {
-    case Type.Array(size) => acc + s"mov rdi, [rbp-${entry._2.pointer}]\n" + "call free\n";
+    case Type.Array(size, arrType) => acc + s"mov rdi, [rbp-${entry._2.pointer}]\n" + "call free\n";
     case _ => acc
   })
 
   type Env = Map[String, Variable]
-  case class FunctionInfo(name: String, args: List[Type])
+  case class FunctionInfo(name: String, args: List[Type], retType: Type)
   case class Variable(pointer: Int, varType: Type)
 }
 

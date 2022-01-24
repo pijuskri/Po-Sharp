@@ -1,3 +1,13 @@
+def main(): int {
+  val a = array[8];
+  print(a[0]);
+  a[0] = 5;
+  print(a[0]);
+  return 0;
+}
+
+
+/*
 def main() {
   def a = 9;
   def b = (fib((a+1)) + fib(a));
@@ -6,25 +16,13 @@ def main() {
 }
 def fib(n) {
   if(n <= 1) {return n;};
-  def a = (fib((n-1)) + fib((n-2)));
-  //def a = fib((n-1));
-  //def b = fib((n-2));
-  //a = (a + b);
-  return a;
-}
-
-/*
-def min(a) {
-  if(a == 0) {return a;};
-  def b = min((a-1));
-  return b;
+  return (fib((n-1)) + fib((n-2)));
 }
 */
 
-//
 
 /*
-def_arr a[8];
+ val a = [8];
  print(a[0]);
  a[0] = 5;
  print(a[0]);
