@@ -83,7 +83,7 @@ object Parser {
   def line[_: P]: P[Expr] = P(expr ~/ ";")
   def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | retFunction | IfOp | whileLoop | print)
 
-  def prefixExpr[_: P]: P[Expr] = P( parens | arrayDef | getArray | callFunction | number | ident | constant | str)
+  def prefixExpr[_: P]: P[Expr] = P( parens | arrayDef | arrayDefDefault | getArray | callFunction | number | ident | constant | str)
 
   def defVal[_: P] = P("val " ~ ident ~ typeDef.?).map{
     case(ident, Some(varType)) => Expr.DefVal(ident, varType)
@@ -468,7 +468,6 @@ object ToAssembly {
   }
   def getArray(name: Expr.Ident, index: Expr, reg: List[String], env: Env): (String, Type) = (convert(name, reg, env), convert(index, reg, env)) match {
     case ((code, Type.Array(size, arrType)), (indexCode, indexType)) => {
-      //(code + s"mov ${reg.tail.head}, ${reg.head}\n" + s"mov ${reg.head}, [${reg.tail.head}+${index*8}]\n", arrType)
       (code + s"push ${reg.head}\n" + indexCode + s"mov ${reg.tail.head}, ${reg.head}\n" + s"pop ${reg.head}\n" + s"mov ${reg.head}, [${reg.head}+${reg.tail.head}*8]\n", arrType)
     }
     case ((code, varType), l) => throw new Exception(s"trying to access variable ${name.name} as an array, has type $varType")
@@ -478,13 +477,13 @@ object ToAssembly {
   }
   //TODO store size in first elem
   def defineArray(size: Int, defaultValues: List[Expr], env: Env): (String, Type) = {
-    var ret = s"mov rdi, ${size}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n";
+    var ret = s"mov rdi, ${size}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n" + "mov r9, rax\n";
     var elemType: Type = Type.Undefined();
     ret += defaultValues.zipWithIndex.map{case (entry, index) => {
       val converted = convert(entry, defaultReg, env)
       if(elemType == Type.Undefined()) elemType = converted._2;
       else if(converted._2 != elemType) throw new Exception(s"array elements are of different types")
-      converted._1 + setArrayDirect("[rsp-8]", index);
+      converted._1 + setArrayDirect("[rsp]", index);
     }}.mkString;
     ret += "pop rax\n"
     (ret, Type.Array(size, elemType))
