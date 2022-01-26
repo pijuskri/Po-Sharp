@@ -84,7 +84,7 @@ object Parser {
   def line[_: P]: P[Expr] = P(expr ~/ ";")
   def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | retFunction | IfOp | whileLoop | print)
 
-  def prefixExpr[_: P]: P[Expr] = P( parens | arrayDef | arrayDefDefault | getArray | callFunction | getArraySize | number | ident | constant | str)
+  def prefixExpr[_: P]: P[Expr] = P( parens | arrayDef | arrayDefDefault | getArray | callFunction | getArraySize | numberFloat | number | ident | constant | str)
 
   def defVal[_: P] = P("val " ~ ident ~ typeDef.?).map{
     case(ident, Some(varType)) => Expr.DefVal(ident, varType)
@@ -182,6 +182,7 @@ object Parser {
     Expr.Ident(input)
   })
   def number[_: P]: P[Expr.Num] = P( "-".!.? ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.Num(Integer.parseInt(x)))
+  def numberFloat[_: P]: P[Expr.NumFloat] = P( "-".? ~~ CharsWhileIn("0-9", 1) ~~ "." ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.NumFloat(x.toFloat))
   //def char[_: P]: P[Expr.Num] = P( "-".!.? ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.Num(Integer.parseInt(x)))
   def constant[_: P]: P[Expr] = P( trueC | falseC )
   def trueC[_: P]: P[Expr.True] = P("true").map(_ => Expr.True())
@@ -276,13 +277,15 @@ object ToAssembly {
   private def convert(input: Expr, reg: List[String], env: Env): (String, Type) = {
     input match {
       case Expr.Num(value) => (s"mov ${reg.head}, 0${value}d\n", Type.Num())
-      case Expr.NumFloat(value) => (s"mov ${reg.head},__?float64?__(${value})", Type.NumFloat())
+      case Expr.NumFloat(value) => {
+        (s"mov ${reg.head}, __float64__(${value.toString})\n", Type.NumFloat())
+      }
       case Expr.Plus(left, right) => {
         (convert(left, reg, env), convert(right, reg.tail, env)) match {
           case ((codeLeft, Type.Num()), (codeRight, Type.Num())) =>
             (codeLeft + codeRight + s"add ${reg.head}, ${reg.tail.head}\n", Type.Num());
           case ((codeLeft, Type.NumFloat()), (codeRight, Type.NumFloat())) =>{
-            val ret = codeLeft + s"movss xmm0, ${reg.head}" + codeRight + s"addss ${reg.head}, ${reg.tail.head}\n"
+            val ret = codeLeft + s"movq xmm0, ${reg.head}" + codeRight + s"addss ${reg.head}, ${reg.tail.head}\n"
             (ret, Type.NumFloat());
           }
 
@@ -488,7 +491,6 @@ object ToAssembly {
   def getArrayDirect(code: String, index: Int, reg: List[String]): String = {
     s"mov ${reg.tail.head}, ${code}\n" + s"mov ${reg.head}, [${reg.tail.head}+${index*8}]\n"
   }
-  //TODO store size in first elem
   def defineArray(size: Int, defaultValues: List[Expr], env: Env): (String, Type) = {
     var ret = s"mov rdi, ${size+1}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n" + "mov r9, rax\n";
     var elemType: Type = Type.Undefined();
@@ -538,7 +540,7 @@ object ToAssembly {
     val converted = convert(toPrint, defaultReg, env)
     converted._2 match {
       case Type.Num() => converted._1 + printTemplate("format_num");
-      case Type.NumFloat() => converted._1 + printTemplate("format_float");
+      case Type.NumFloat() => converted._1 + "movq xmm0, rax\n" + "mov rdi, format_float\n" + "mov rax, 1\n" + "call printf\n"
       case _ => throw new Exception(s"input of type ${converted._2} not recognized in print")
     }
   }
