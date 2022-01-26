@@ -1,8 +1,9 @@
 def main(): int {
   val a = array[8];
-  print(a[0]);
-  a[0] = 5;
-  print(a[0]);
+  val b = 1;
+  //print(a[0]);
+  a[b] = 5;
+  print(a[b]);
   return 0;
 }
 

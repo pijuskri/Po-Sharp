@@ -12,6 +12,9 @@ object Expr{
   case class Str(s: String) extends Expr
   case class Ident(name: String) extends Expr
   case class Num(value: Int) extends Expr
+  case class NumFloat(value: Float) extends Expr
+  case class Character(char: Char)
+
   case class Plus(left: Expr, right: Expr) extends Expr
   case class Minus(left: Expr, right: Expr) extends Expr
   case class Mult(left: Expr, right: Expr) extends Expr
@@ -30,14 +33,15 @@ object Expr{
 
   case class Print(value: Expr) extends Expr
   case class SetVal(variable: Expr, value: Expr) extends Expr
-  case class DefVal(variable: Expr) extends Expr
+  case class DefVal(variable: Expr, varType: Type) extends Expr
   case class Block(lines: List[Expr]) extends Expr
   case class ExtendBlock(lines: List[Expr]) extends Expr
   case class While(condition: Expr, execute: Expr.Block) extends Expr
 
-  case class GetArray(array: Ident, index: Int) extends Expr
-  case class SetArray(array: Ident, index: Int, value: Expr) extends Expr
-  case class DefineArray(size: Int) extends Expr
+  case class GetArray(array: Ident, index: Expr) extends Expr
+  case class SetArray(array: Ident, index: Expr, value: Expr) extends Expr
+  case class DefineArray(size: Int, defaultValues: List[Expr]) extends Expr
+  case class ConcatArray(left: Expr, right: Expr) extends Expr
 
   //case class StackVar(offset: Int) extends Expr
   case class Func(name: String, argNames: List[InputVar], retType: Type, body: Expr.Block) extends Expr
@@ -52,6 +56,7 @@ sealed trait Type
 object Type {
   case class Undefined() extends Type
   case class Num() extends Type
+  case class NumFloat() extends Type
   case class Character() extends Type
   case class Array(size: Int, elemType: Type) extends Type
 }
@@ -76,13 +81,16 @@ object Parser {
     case _ => acc :+ el;
   } )).map(x=>Expr.Block(x))
   def line[_: P]: P[Expr] = P(expr ~/ ";")
-  def expr[_: P]: P[Expr] = P( arrayDef | defAndSetVal | defVal | setArray | setVal | retFunction | IfOp | whileLoop | print)
+  def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | retFunction | IfOp | whileLoop | print)
 
   def prefixExpr[_: P]: P[Expr] = P( parens | arrayDef | getArray | callFunction | number | ident | constant | str)
 
-  def defVal[_: P] = P("val " ~ ident).map(x => Expr.DefVal(x))
+  def defVal[_: P] = P("val " ~ ident ~ typeDef.?).map{
+    case(ident, Some(varType)) => Expr.DefVal(ident, varType)
+    case(ident, None) => Expr.DefVal(ident, Type.Undefined())
+  }
   def setVal[_: P] = P(ident ~ "=" ~/ prefixExpr).map(x => Expr.SetVal(x._1, x._2))
-  def defAndSetVal[_: P] = P( "val " ~ ident ~ "=" ~ prefixExpr).map(x => Expr.ExtendBlock(List(Expr.DefVal(x._1), Expr.SetVal(x._1, x._2))))
+  def defAndSetVal[_: P] = P( defVal ~ "=" ~ prefixExpr).map(x => Expr.ExtendBlock(List(x._1, Expr.SetVal(x._1.variable, x._2))))
 
   /*
   def arrayDef[_: P] = P("val " ~ ident ~ "=" ~ "Array" ~/ "[" ~ number ~ "]").map(x => {
@@ -93,10 +101,11 @@ object Parser {
     ));
   })
    */
-  def arrayDef[_: P]: P[Expr.DefineArray] = P("array" ~/ "[" ~/ number ~ "]").map(x=> Expr.DefineArray(x.value))
+  def arrayDef[_: P]: P[Expr.DefineArray] = P("array" ~ "[" ~/ number ~ "]").map(x=> Expr.DefineArray(x.value, List()))
+  def arrayDefDefault[_: P]: P[Expr.DefineArray] = P("array" ~ "(" ~/ prefixExpr.rep(sep = ",") ~ ")").map(x=> Expr.DefineArray(x.size, x.toList))
 
-  def getArray[_: P]: P[Expr.GetArray] = P(ident ~ "[" ~/ number ~ "]").map((x) => Expr.GetArray(x._1, x._2.value))
-  def setArray[_: P]: P[Expr.SetArray] = P(ident ~ "[" ~/ number ~ "]" ~/ "=" ~ prefixExpr).map((x) => Expr.SetArray(x._1, x._2.value, x._3))
+  def getArray[_: P]: P[Expr.GetArray] = P(ident ~ "[" ~/ prefixExpr ~ "]").map((x) => Expr.GetArray(x._1, x._2))
+  def setArray[_: P]: P[Expr.SetArray] = P(ident ~ "[" ~/ prefixExpr ~ "]" ~/ "=" ~ prefixExpr).map((x) => Expr.SetArray(x._1, x._2, x._3))
 
   def retFunction[_: P]: P[Expr.Return] = P("return" ~/ prefixExpr).map(Expr.Return)
 
@@ -124,7 +133,7 @@ object Parser {
     case (name, args) => Expr.CallF(name.name, args.toList);
   }
 
-  def binOp[_: P] = P( prefixExpr ~ ( StringIn("+", "-", "*", "/", "==", ">", "<").! ~/ prefixExpr).rep(1)).map(list => parseBinOpList(list._1, list._2.toList))
+  def binOp[_: P] = P( prefixExpr ~ ( StringIn("+", "-", "*", "/", "++").! ~/ prefixExpr).rep(1)).map(list => parseBinOpList(list._1, list._2.toList))
 
   def parseBinOpList(initial: Expr, rest: List[(String, Expr)]): Expr = {
     rest.foldLeft(initial) {
@@ -133,6 +142,7 @@ object Parser {
         case "-" => Expr.Minus(left, right)
         case "*" => Expr.Mult(left, right)
         case "/" => Expr.Div(left, right)
+        case "++" => Expr.ConcatArray(left, right)
       }
     }
   }
@@ -170,6 +180,7 @@ object Parser {
     Expr.Ident(input)
   })
   def number[_: P]: P[Expr.Num] = P( "-".!.? ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.Num(Integer.parseInt(x)))
+  //def char[_: P]: P[Expr.Num] = P( "-".!.? ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.Num(Integer.parseInt(x)))
   def constant[_: P]: P[Expr] = P( trueC | falseC )
   def trueC[_: P]: P[Expr.True] = P("true").map(_ => Expr.True())
   def falseC[_: P]: P[Expr.False] = P("false").map(_ => Expr.False())
@@ -250,7 +261,8 @@ object ToAssembly {
     }}
 
     //converted += convert(input, defaultReg, Map() )._1;
-    converted += "format_num:\n        db  \"%d\", 10, 0"
+    converted += "format_num:\n        db  \"%d\", 10, 0\n"
+    converted += "format_float:\n        db  \"%f\", 10, 0\n"
     //converted.split("\n").zipWithIndex.foldLeft("")((acc, v)=> acc +s"\nline${v._2}:\n"+ v._1)
     converted
   }
@@ -262,7 +274,35 @@ object ToAssembly {
   private def convert(input: Expr, reg: List[String], env: Env): (String, Type) = {
     input match {
       case Expr.Num(value) => (s"mov ${reg.head}, 0${value}d\n", Type.Num())
-      case Expr.Plus(left, right) => (binOpTemplate(left, right, "add", reg, env), Type.Num())
+      case Expr.NumFloat(value) => (s"mov ${reg.head},__?float64?__(${value})", Type.NumFloat())
+      case Expr.Plus(left, right) => {
+        (convert(left, reg, env), convert(right, reg.tail, env)) match {
+          case ((codeLeft, Type.Num()), (codeRight, Type.Num())) =>
+            (codeLeft + codeRight + s"add ${reg.head}, ${reg.tail.head}\n", Type.Num());
+          case ((codeLeft, Type.NumFloat()), (codeRight, Type.NumFloat())) =>{
+            val ret = codeLeft + s"movss xmm0, ${reg.head}" + codeRight + s"addss ${reg.head}, ${reg.tail.head}\n"
+            (ret, Type.NumFloat());
+          }
+
+          case ((codeLeft, typeLeft), (codeRight, typeRight)) => throw new Exception(s"can't add operands of types ${typeLeft} and ${typeRight}");
+        }
+      }
+      /*
+      case Expr.ConcatArray(left, right) => (convert(left, reg, env), convert(right, reg.tail, env)) match {
+        case ((codeLeft, Type.Array(sizeLeft, elemTypeLeft)), (codeRight, Type.Array(sizeRight, elemTypeRight))) => {
+          if(elemTypeLeft != elemTypeRight) throw new Exception(s"can't add arrays of different types");
+          val size = sizeLeft+ sizeRight;
+          var ret = codeLeft + "push rax\n" + codeRight + "push rax\n";
+          val leftArr = "[rsp-8]"; val rightArr = "[rsp-16]"
+          //TODO add runtime garbage collection
+          //s"mov rdi, [rbp-${entry._2.pointer}]\n" + "call free\n";
+          ret += s"mov rdi, ${size}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n";
+          ret += Expr.While()
+          ret += "pop rax\n"
+          (ret, Type.Array(size, elemTypeLeft))
+        }
+      }
+       */
       case Expr.Minus(left, right) => (binOpTemplate(left, right, "sub", reg, env), Type.Num())
       case Expr.Mult(left, right) => (mulTemplate(left, right, "imul", reg, env), Type.Num())
       case Expr.Ident(name) => {
@@ -271,16 +311,8 @@ object ToAssembly {
       }
       //case Expr.Div(left, right) => mulTemplate(left, right, "idiv", reg)
       case Expr.Block(lines) => convertBlock(lines, reg, env);
-      case Expr.DefineArray(size) => {
-        (s"mov rdi, ${size}\n" + s"mov rsi, 8\n" + "call calloc\n", Type.Array(size, Type.Num()))
-      }
-      case Expr.GetArray(name, index) => convert(name, reg, env) match {
-        case (code, Type.Array(size, arrType)) => {
-          if(index>=size) throw new Exception(s"array ${name.name} index out of bounds: $index")
-          (code + s"mov ${reg.tail.head}, ${reg.head}\n" + s"mov ${reg.head}, [${reg.tail.head}+${index*8}]\n", arrType)
-        }
-        case (code, varType) => throw new Exception(s"trying to access variable ${name.name} as an array, has type $varType")
-      }
+      case Expr.DefineArray(size, defaultValues) => defineArray(size, defaultValues, env)
+      case Expr.GetArray(name, index) => getArray(name, index, reg, env);
       case Expr.CallF(name, args) => functions.find(x=>x.name == name) match {
         case Some(FunctionInfo(p, argTypes, retType)) => {
           if(argTypes.length != args.length) throw new Exception (s"wrong number of arguments: expected ${argTypes.length}, got ${args.length}")
@@ -319,7 +351,7 @@ object ToAssembly {
         newenv = arr._2;
         converted._1 + arr._1
       };
-      case Expr.DefVal( Expr.Ident(name)) => newenv = newVar(name, Type.Undefined(), newenv); ""
+      case Expr.DefVal(Expr.Ident(name), varType) => newenv = newVar(name, varType, newenv); ""
       case Expr.Print(toPrint) => printInterp(toPrint, env);
       case Expr.If(condition, ifTrue, ifFalse) => {
         val trueLabel = s"if_${ifCounter}_true"
@@ -412,6 +444,7 @@ object ToAssembly {
       ret
     }).mkString
   }
+  //TODO remove type assingmed after fact(causes issues when type is unknown in compile time)
   def setval(name: String, raxType: Type, env: Env): (String, Env) = {
     val look = lookup(name, env);
     var newenv = env;
@@ -421,16 +454,40 @@ object ToAssembly {
     }
     (s"mov qword ${look._1}, rax\n", newenv)
   }
-  def setArray(name: String, index: Int, raxType: Type, env: Env): (String, Env) = lookup(name, env) match {
-    case (code, Variable(loc, Type.Array(size, elemType))) => {
-      if(index>=size) throw new Exception(s"array ${name} index out of bounds: $index")
+  //TODO add runtime index checking
+  def setArray(name: String, index: Expr, raxType: Type, env: Env): (String, Env) = (lookup(name, env), convert(index, defaultReg, env)) match {
+    case ((varLoc, Variable(loc, Type.Array(size, elemType))), (indexCode, indexType)) => {
       var newenv = env;
       if(elemType != raxType) {
-        if(elemType == Type.Undefined()) newenv = env.map(x=>if(x._1==name) (x._1, Variable(x._2.pointer, raxType)) else x)
+        if(elemType == Type.Undefined()) newenv = env.map(x=>if(x._1==name) (x._1, Variable(x._2.pointer, Type.Array(size, raxType))) else x)
         else throw new Exception(s"trying to set array element of type ${elemType} to $raxType")
       }
-      (s"mov rdi, ${code}\n" + s"mov [rdi+${index*8}], rax\n", newenv)
+      if(indexType != Type.Num()) throw new Exception(s"wrong index for array, got $indexType")
+      ("push rax\n" + indexCode + s"mov rdi, ${varLoc}\n" + "pop rsi\n" + s"mov [rdi+rax*8], rsi\n", newenv)
     }
+  }
+  def getArray(name: Expr.Ident, index: Expr, reg: List[String], env: Env): (String, Type) = (convert(name, reg, env), convert(index, reg, env)) match {
+    case ((code, Type.Array(size, arrType)), (indexCode, indexType)) => {
+      //(code + s"mov ${reg.tail.head}, ${reg.head}\n" + s"mov ${reg.head}, [${reg.tail.head}+${index*8}]\n", arrType)
+      (code + s"push ${reg.head}\n" + indexCode + s"mov ${reg.tail.head}, ${reg.head}\n" + s"pop ${reg.head}\n" + s"mov ${reg.head}, [${reg.head}+${reg.tail.head}*8]\n", arrType)
+    }
+    case ((code, varType), l) => throw new Exception(s"trying to access variable ${name.name} as an array, has type $varType")
+  }
+  def setArrayDirect(code: String, index: Int): String = {
+      s"mov rdi, ${code}\n" + s"mov [rdi+${index*8}], rax\n"
+  }
+  //TODO store size in first elem
+  def defineArray(size: Int, defaultValues: List[Expr], env: Env): (String, Type) = {
+    var ret = s"mov rdi, ${size}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n";
+    var elemType: Type = Type.Undefined();
+    ret += defaultValues.zipWithIndex.map{case (entry, index) => {
+      val converted = convert(entry, defaultReg, env)
+      if(elemType == Type.Undefined()) elemType = converted._2;
+      else if(converted._2 != elemType) throw new Exception(s"array elements are of different types")
+      converted._1 + setArrayDirect("[rsp-8]", index);
+    }}.mkString;
+    ret += "pop rax\n"
+    (ret, Type.Array(size, elemType))
   }
 
   def lookup(tofind: String, env: Env): (String, Variable) = {
@@ -468,6 +525,7 @@ object ToAssembly {
     val converted = convert(toPrint, defaultReg, env)
     converted._2 match {
       case Type.Num() => converted._1 + printTemplate("format_num");
+      case Type.NumFloat() => converted._1 + printTemplate("format_float");
       case _ => throw new Exception(s"input of type ${converted._2} not recognized in print")
     }
   }

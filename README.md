@@ -137,6 +137,7 @@ will be generated in `compiled/hello.asm` (do not ask why I named it that).
 * Loops (for)
 * Float support
 * dynamic arrays/array size at runtime
+* library functions
 * Input filename (perhaps make compiled version for release)
 * user input
 * typeof
