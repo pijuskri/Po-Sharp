@@ -42,6 +42,7 @@ object Expr{
   case class SetArray(array: Ident, index: Expr, value: Expr) extends Expr
   case class DefineArray(size: Int, defaultValues: List[Expr]) extends Expr
   case class ConcatArray(left: Expr, right: Expr) extends Expr
+  case class ArraySize(array: Ident) extends Expr
 
   //case class StackVar(offset: Int) extends Expr
   case class Func(name: String, argNames: List[InputVar], retType: Type, body: Expr.Block) extends Expr
@@ -83,7 +84,7 @@ object Parser {
   def line[_: P]: P[Expr] = P(expr ~/ ";")
   def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | retFunction | IfOp | whileLoop | print)
 
-  def prefixExpr[_: P]: P[Expr] = P( parens | arrayDef | arrayDefDefault | getArray | callFunction | number | ident | constant | str)
+  def prefixExpr[_: P]: P[Expr] = P( parens | arrayDef | arrayDefDefault | getArray | callFunction | getArraySize | number | ident | constant | str)
 
   def defVal[_: P] = P("val " ~ ident ~ typeDef.?).map{
     case(ident, Some(varType)) => Expr.DefVal(ident, varType)
@@ -106,6 +107,7 @@ object Parser {
 
   def getArray[_: P]: P[Expr.GetArray] = P(ident ~ "[" ~/ prefixExpr ~ "]").map((x) => Expr.GetArray(x._1, x._2))
   def setArray[_: P]: P[Expr.SetArray] = P(ident ~ "[" ~/ prefixExpr ~ "]" ~/ "=" ~ prefixExpr).map((x) => Expr.SetArray(x._1, x._2, x._3))
+  def getArraySize[_: P]: P[Expr.ArraySize] = P(ident ~ ".size").map((x) => Expr.ArraySize(x))
 
   def retFunction[_: P]: P[Expr.Return] = P("return" ~/ prefixExpr).map(Expr.Return)
 
@@ -313,6 +315,7 @@ object ToAssembly {
       case Expr.Block(lines) => convertBlock(lines, reg, env);
       case Expr.DefineArray(size, defaultValues) => defineArray(size, defaultValues, env)
       case Expr.GetArray(name, index) => getArray(name, index, reg, env);
+      case Expr.ArraySize(name) => getArraySize(name, reg, env);
       case Expr.CallF(name, args) => functions.find(x=>x.name == name) match {
         case Some(FunctionInfo(p, argTypes, retType)) => {
           if(argTypes.length != args.length) throw new Exception (s"wrong number of arguments: expected ${argTypes.length}, got ${args.length}")
@@ -366,7 +369,7 @@ object ToAssembly {
         val startLabel = s"while_${ifCounter}_start"
         val trueLabel = s"while_${ifCounter}_true"
         val endLabel = s"while_${ifCounter}_end"
-        val ret = s"${startLabel}:\n" + convertCondition(condition, reg, env, orMode = false, trueLabel, endLabel) + s"${trueLabel}:\n" + convert(execute, reg, env) +
+        val ret = s"${startLabel}:\n" + convertCondition(condition, reg, env, orMode = false, trueLabel, endLabel) + s"${trueLabel}:\n" + convert(execute, reg, env)._1 +
           s"jmp ${startLabel}\n" + s"${endLabel}:\n"
         ifCounter += 1;
         ret
@@ -382,7 +385,7 @@ object ToAssembly {
       lineNr+=1;
       defstring += convert(Expr.Block(lines.tail), defaultReg, newenv)._1
     }
-    else defstring += freeMemory(env)
+    //else defstring += freeMemory(env)
     (defstring, Type.Undefined());
   }
   private def convertCondition(input: Expr, reg: List[String], env: Env, orMode: Boolean, trueLabel: String, falseLabel: String): String = {
@@ -463,28 +466,39 @@ object ToAssembly {
         else throw new Exception(s"trying to set array element of type ${elemType} to $raxType")
       }
       if(indexType != Type.Num()) throw new Exception(s"wrong index for array, got $indexType")
-      ("push rax\n" + indexCode + s"mov rdi, ${varLoc}\n" + "pop rsi\n" + s"mov [rdi+rax*8], rsi\n", newenv)
+      ("push rax\n" + indexCode + s"mov rdi, ${varLoc}\n" + "pop rsi\n" + s"mov [rdi+8+rax*8], rsi\n", newenv)
     }
   }
   def getArray(name: Expr.Ident, index: Expr, reg: List[String], env: Env): (String, Type) = (convert(name, reg, env), convert(index, reg, env)) match {
     case ((code, Type.Array(size, arrType)), (indexCode, indexType)) => {
-      (code + s"push ${reg.head}\n" + indexCode + s"mov ${reg.tail.head}, ${reg.head}\n" + s"pop ${reg.head}\n" + s"mov ${reg.head}, [${reg.head}+${reg.tail.head}*8]\n", arrType)
+      if(indexType != Type.Num()) throw new Exception(s"wrong index for array, got $indexType")
+      (code + s"push ${reg.head}\n" + indexCode + s"mov ${reg.tail.head}, ${reg.head}\n" + s"pop ${reg.head}\n" + s"mov ${reg.head}, [${reg.head}+8+${reg.tail.head}*8]\n", arrType)
     }
     case ((code, varType), l) => throw new Exception(s"trying to access variable ${name.name} as an array, has type $varType")
+  }
+  def getArraySize(name: Expr.Ident, reg: List[String], env: Env): (String, Type) = convert(name, reg, env) match {
+    case (code, Type.Array(size, arrType)) => {
+      (code + getArrayDirect(reg.head, 0, reg), Type.Num())
+    }
+    case (code, varType) => throw new Exception(s"trying to access variable ${name.name} as an array, has type $varType")
   }
   def setArrayDirect(code: String, index: Int): String = {
       s"mov rdi, ${code}\n" + s"mov [rdi+${index*8}], rax\n"
   }
+  def getArrayDirect(code: String, index: Int, reg: List[String]): String = {
+    s"mov ${reg.tail.head}, ${code}\n" + s"mov ${reg.head}, [${reg.tail.head}+${index*8}]\n"
+  }
   //TODO store size in first elem
   def defineArray(size: Int, defaultValues: List[Expr], env: Env): (String, Type) = {
-    var ret = s"mov rdi, ${size}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n" + "mov r9, rax\n";
+    var ret = s"mov rdi, ${size+1}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n" + "mov r9, rax\n";
     var elemType: Type = Type.Undefined();
     ret += defaultValues.zipWithIndex.map{case (entry, index) => {
       val converted = convert(entry, defaultReg, env)
       if(elemType == Type.Undefined()) elemType = converted._2;
       else if(converted._2 != elemType) throw new Exception(s"array elements are of different types")
-      converted._1 + setArrayDirect("[rsp]", index);
+      converted._1 + setArrayDirect("[rsp]", index+1);
     }}.mkString;
+    ret += s"mov rax, 0${size}d\n" + setArrayDirect("[rsp]", 0)
     ret += "pop rax\n"
     (ret, Type.Array(size, elemType))
   }

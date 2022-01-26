@@ -1,9 +1,10 @@
 def main(): int {
-  val a = array[8];
-  val b = 1;
-  //print(a[0]);
-  a[b] = 5;
-  print(a[b]);
+  val a = array(1, 2, 3);
+  val b = 0;
+  while(b < a.size) {
+    print(a[b]);
+    b = (b + 1);
+  };
   return 0;
 }
 
@@ -19,12 +20,4 @@ def fib(n) {
   if(n <= 1) {return n;};
   return (fib((n-1)) + fib((n-2)));
 }
-*/
-
-
-/*
- val a = [8];
- print(a[0]);
- a[0] = 5;
- print(a[0]);
 */
