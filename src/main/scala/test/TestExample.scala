@@ -5,7 +5,6 @@ import scala.language.postfixOps
 package test {
 
   import veritas.PoSharpScript
-  import veritas.Veritas.GetOutput
 
   @Test
   class TestExample {
@@ -26,10 +25,16 @@ package test {
         .ShouldBe("-1")
         .Run()
     }
+
     def runTest5(): (Boolean, String) = {
       new PoSharpScript("{ def a[5]; a[0] = 5; print(a[0]);}")
         .ShouldBe("5")
         .Run()
+    }
+
+    def runTest6(): (Boolean, String) = {
+      new PoSharpScript("def main(): int { val a = 10; print(a[0]); return 0;}")
+        .ShouldThrow(new Exception())
     }
   }
 }
