@@ -13,7 +13,7 @@ object Expr{
   case class Ident(name: String) extends Expr
   case class Num(value: Int) extends Expr
   case class NumFloat(value: Float) extends Expr
-  case class Character(char: Char)
+  case class Character(char: Char) extends Expr
 
   case class Plus(left: Expr, right: Expr) extends Expr
   case class Minus(left: Expr, right: Expr) extends Expr
@@ -48,6 +48,8 @@ object Expr{
   case class Func(name: String, argNames: List[InputVar], retType: Type, body: Expr.Block) extends Expr
   case class CallF(name: String, args: List[Expr]) extends Expr
   case class Return(value: Expr) extends Expr
+
+  case class Convert(value: Expr, to: Type) extends Expr
 
   case class TopLevel(functions: List[Func]) extends Expr
   case class Nothing() extends Expr
@@ -84,7 +86,7 @@ object Parser {
   def line[_: P]: P[Expr] = P(expr ~/ ";")
   def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | retFunction | IfOp | whileLoop | print)
 
-  def prefixExpr[_: P]: P[Expr] = P( parens | arrayDef | arrayDefDefault | getArray | callFunction | getArraySize | numberFloat | number | ident | constant | str)
+  def prefixExpr[_: P]: P[Expr] = P( convert | parens | arrayDef | arrayDefDefault | getArray | callFunction | getArraySize | numberFloat | number | ident | constant | str)
 
   def defVal[_: P] = P("val " ~ ident ~ typeDef.?).map{
     case(ident, Some(varType)) => Expr.DefVal(ident, varType)
@@ -116,7 +118,11 @@ object Parser {
     case "char" => Type.Character();
   }
 
-  def parens[_: P] = P("(" ~ binOp ~ ")")
+  def parens[_: P] = P("(" ~/ (binOp | prefixExpr) ~ ")")
+  def convert[_: P]: P[Expr.Convert] = P("(" ~ (binOp | prefixExpr) ~ ")" ~ "." ~/ StringIn("toInt", "toFloat").!).map{
+    case (value, "toInt") => Expr.Convert(value, Type.Num())
+    case (value, "toFloat") => Expr.Convert(value, Type.NumFloat())
+  }
 
   /*
   def binOp[_: P] = P(prefixExpr ~ StringIn("+", "-", "*", "/", "==", ">", "<").! ~/ prefixExpr).map({
@@ -280,18 +286,7 @@ object ToAssembly {
       case Expr.NumFloat(value) => {
         (s"mov ${reg.head}, __float64__(${value.toString})\n", Type.NumFloat())
       }
-      case Expr.Plus(left, right) => {
-        (convert(left, reg, env), convert(right, reg.tail, env)) match {
-          case ((codeLeft, Type.Num()), (codeRight, Type.Num())) =>
-            (codeLeft + codeRight + s"add ${reg.head}, ${reg.tail.head}\n", Type.Num());
-          case ((codeLeft, Type.NumFloat()), (codeRight, Type.NumFloat())) =>{
-            val ret = codeLeft + s"movq xmm0, ${reg.head}" + codeRight + s"addss ${reg.head}, ${reg.tail.head}\n"
-            (ret, Type.NumFloat());
-          }
-
-          case ((codeLeft, typeLeft), (codeRight, typeRight)) => throw new Exception(s"can't add operands of types ${typeLeft} and ${typeRight}");
-        }
-      }
+      case Expr.Plus(left, right) => aritTemplate(left, right, "add", "addsd", reg, env)
       /*
       case Expr.ConcatArray(left, right) => (convert(left, reg, env), convert(right, reg.tail, env)) match {
         case ((codeLeft, Type.Array(sizeLeft, elemTypeLeft)), (codeRight, Type.Array(sizeRight, elemTypeRight))) => {
@@ -308,13 +303,18 @@ object ToAssembly {
         }
       }
        */
-      case Expr.Minus(left, right) => (binOpTemplate(left, right, "sub", reg, env), Type.Num())
-      case Expr.Mult(left, right) => (mulTemplate(left, right, "imul", reg, env), Type.Num())
+      case Expr.Minus(left, right) => aritTemplate(left, right, "sub", "subsd", reg, env)
+      case Expr.Mult(left, right) => aritTemplate(left, right, "mul", "mulsd", reg, env)
+      case Expr.Div(left, right) => aritTemplate(left, right, "div", "divsd", reg, env)
+      case Expr.Convert(value, valType: Type) => (convert(value, reg, env), valType) match {
+        case ((code, Type.Num()), Type.NumFloat()) => (code + convertToFloat(reg.head), valType)
+        case ((code, Type.NumFloat()), Type.Num()) => (code + convertToInt(reg.head), valType)
+        case ((code, l), r) => throw new Exception(s"cant convert from types ${l} to $r")
+      }
       case Expr.Ident(name) => {
         val look = lookup(name, env)
         (s"mov ${reg.head}, ${look._1}\n", look._2.varType)
       }
-      //case Expr.Div(left, right) => mulTemplate(left, right, "idiv", reg)
       case Expr.Block(lines) => convertBlock(lines, reg, env);
       case Expr.DefineArray(size, defaultValues) => defineArray(size, defaultValues, env)
       case Expr.GetArray(name, index) => getArray(name, index, reg, env);
@@ -518,15 +518,47 @@ object ToAssembly {
     val newOffset: Int = if(env.isEmpty) 0 else env.values.toList.map(x=>x.pointer).max
     env + (name -> Variable(newOffset + 8, varType))
   }
+
+  def floatTemplate (codeLeft: String, codeRight: String, command: String, reg: List[String]): (String, Type) = {
+    val ret = codeLeft + codeRight + s"movq xmm0, ${reg.head}\n" + s"movq xmm1, ${reg.tail.head}\n" +
+      s"${command} xmm0, xmm1\n" + s"movq ${reg.head}, xmm0\n"
+    (ret, Type.NumFloat());
+  }
+
+  def binOpTemplate(left: Expr, right: Expr, command: String, reg: List[String], env: Env): String = {
+    val leftout = convert(left, reg, env)._1;
+    val rightout = convert(right, reg.tail, env)._1;
+    leftout + rightout + s"${command} ${reg.head}, ${reg.tail.head}\n";
+  }
+  /*
   def mulTemplate(left: Expr, right: Expr, command: String, reg: List[String], env: Env): String = {
     val leftout = convert(left, reg, env)._1;
     val rightout = convert(right, reg.tail, env)._1;
     leftout + rightout + s"${command} ${reg.tail.head}\n";
   }
-  def binOpTemplate(left: Expr, right: Expr, command: String, reg: List[String], env: Env): String = {
-    val leftout = convert(left, reg, env)._1;
-    val rightout = convert(right, reg.tail, env)._1;
-    leftout + rightout + s"${command} ${reg.head}, ${reg.tail.head}\n";
+   */
+  def intBinOpTemplate(codeLeft: String, codeRight: String, command: String, reg: List[String]): (String, Type) = {
+    (codeLeft + codeRight + s"${command} ${reg.head}, ${reg.tail.head}\n", Type.Num());
+  }
+  def intmulTemplate(codeLeft: String, codeRight: String, command: String, reg: List[String]): (String, Type) = {
+    (codeLeft + codeRight + s"${command} ${reg.tail.head}\n", Type.Num());
+  }
+  def aritTemplate(left: Expr, right: Expr, commandInt: String, commandFloat: String, reg: List[String], env: Env): (String, Type) = {
+    (convert(left, reg, env), convert(right, reg.tail, env)) match {
+      case ((codeLeft, Type.Num()), (codeRight, Type.Num())) =>
+        if(commandInt == "add" || commandInt == "sub") intBinOpTemplate(codeLeft, codeRight, commandInt, reg)
+        else intmulTemplate(codeLeft, codeRight, commandInt, reg)
+      case ((codeLeft, Type.NumFloat()), (codeRight, Type.NumFloat())) => floatTemplate(codeLeft, codeRight, commandFloat, reg)
+      case ((codeLeft, Type.Num()), (codeRight, Type.NumFloat())) => floatTemplate(codeLeft + convertToFloat(reg.head), codeRight, commandFloat, reg)
+      case ((codeLeft, Type.NumFloat()), (codeRight, Type.Num())) => floatTemplate(codeLeft, codeRight + convertToFloat(reg.tail.head), commandFloat, reg)
+      case ((codeLeft, typeLeft), (codeRight, typeRight)) => throw new Exception(s"can't perform arithmetic on operands of types ${typeLeft} and ${typeRight}");
+    }
+  }
+  def convertToFloat(reg: String): String = {
+    s"cvtsi2sd xmm0, ${reg}\n" + s"movq ${reg}, xmm0\n"
+  }
+  def convertToInt(reg: String): String = {
+    s"movq xmm0, ${reg}\n" + s"cvtsd2si ${reg}, xmm0\n"
   }
   def printTemplate(format: String): String = {
       "mov rdi, " + format +
