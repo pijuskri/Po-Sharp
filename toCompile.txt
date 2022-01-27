@@ -1,6 +1,26 @@
-{
- def_arr a[8];
- print(a[0]);
- a[0] = 5;
- print(a[0]);
+def main(): int {
+
 }
+/*
+def main(): int {
+  val a = 9;
+  print(fib(a));
+  return 0;
+}
+def fib(n: int): int {
+  if(n <= 1) {return n;};
+  return (fib((n-1)) + fib((n-2)));
+}
+*/
+
+/*
+def main(): int {
+  val a = array(1, 2, 3);
+  val b = 0;
+  while(b < a.size) {
+    print(a[b]);
+    b = (b + 1);
+  };
+  return 0;
+}
+*/

@@ -26,5 +26,10 @@ package test {
         .ShouldBe("-1")
         .Run()
     }
+    def runTest5(): (Boolean, String) = {
+      new PoSharpScript("{ def a[5]; a[0] = 5; print(a[0]);}")
+        .ShouldBe("5")
+        .Run()
+    }
   }
 }

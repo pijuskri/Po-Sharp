@@ -90,29 +90,32 @@ to translate to assembly.
 
 Currently, I run the scala compiler through IntelliJ. The conversion from
 assembly to binary is handled by a makefile, that i run in WSL with ubuntu 18;
-I will add a single command for running everything through cli later.
+
+There is also an option to compile with a single command using sbt. Just run `make full`
+in the main directory
 
 For now the code that is interpreted can be typed in the Main object. The assembly file
 will be generated in `compiled/hello.asm` (do not ask why I named it that).
 
+With IntelliJ
 * Run `Main.scala`
 * In root directory call `make`
+
+With sbt
+* In root directory call `make full`
 
 ### Program example
 
 ``` 
-{
-    /*
-     Functionless power function b^a
-     */
-    def a = 10;
-    def b = 2;
-    def c = b;
-    while (a > 1) {
-        b = (b * c);
-        a = (a - 1);
-    };
-    print(b);
+//recursive fibonacci implementation
+def main(): int {
+  val a = 9;
+  print(fib(a));
+  return 0;
+}
+def fib(n: int): int {
+  if(n <= 1) {return n;};
+  return (fib((n-1)) + fib((n-2)));
 }
 ```
 
@@ -126,19 +129,25 @@ will be generated in `compiled/hello.asm` (do not ask why I named it that).
 * print function
 * if/else (&&, ||, ==, >, <, !, !=, >=, <=), forced parenthesis
 * While loops
-* Arrays
+* Arrays(default values, size access)
 * Types(integers, arrays)
+* Functions
 
 ### To do
 <div id="todo"></div>
 
 * Strings
-* Functions
 * Loops (for)
 * Float support
+* dynamic arrays/array size at runtime
+* library functions
+* Input filename (perhaps make compiled version for release)
 * user input
+* typeof
 * Garbage collector
 * Objects/structs
+* multiple files
+* packages
 * File i/o
 * Optimisations with register/stack combinations
 
