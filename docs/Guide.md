@@ -42,6 +42,22 @@ def main(): int {
 }
 ```
 
+### Floats
+
+```
+def main(): int {
+   val a = 2.3; // any float declaration uses a dot, even 2.0, otherwise it is an int
+   print(a);
+   val b: int = a.toInt; // floats can be converted to integers
+   print(b);
+   print(2.3 + 4.5); //arithmetic
+   print(2 + 4.5); //ints are automatically converted to floats
+   // be aware, this returns a float
+   // something like val a: float = (2 + 2); does not work
+   // use toFloat to convert
+}
+```
+
 ### Conditions
 
 ```

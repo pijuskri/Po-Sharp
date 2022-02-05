@@ -1,5 +1,7 @@
 def main(): int {
-
+    val a = (1.3).toInt;
+    print(a);
+    return 0;
 }
 /*
 def main(): int {

@@ -116,6 +116,7 @@ object Parser {
   def typeDef[_: P]: P[Type] = P(":" ~/ StringIn("int", "char").!).map{
     case "int" => Type.Num();
     case "char" => Type.Character();
+    case "float" => Type.NumFloat();
   }
 
   def parens[_: P] = P("(" ~/ (binOp | prefixExpr) ~ ")")
