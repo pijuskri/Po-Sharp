@@ -132,13 +132,13 @@ def fib(n: int): int {
 * Arrays(default values, size access)
 * Types(integers, arrays)
 * Functions
+* Float support
 
 ### To do
 <div id="todo"></div>
 
 * Strings
 * Loops (for)
-* Float support
 * dynamic arrays/array size at runtime
 * library functions
 * Input filename (perhaps make compiled version for release)
