@@ -61,7 +61,9 @@ object Type {
   case class Num() extends Type
   case class NumFloat() extends Type
   case class Character() extends Type
-  case class Array(size: Int, elemType: Type) extends Type
+  case class Str() extends Type
+  case class Array(elemType: Type) extends Type
+  //case class Array(size: Int, elemType: Type) extends Type
 }
 case class InputVar(name: String, varType: Type)
 
@@ -86,7 +88,7 @@ object Parser {
   def line[_: P]: P[Expr] = P(expr ~/ ";")
   def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | retFunction | IfOp | whileLoop | print)
 
-  def prefixExpr[_: P]: P[Expr] = P( convert | parens | arrayDef | arrayDefDefault | getArray | callFunction | getArraySize | numberFloat | number | ident | constant | str)
+  def prefixExpr[_: P]: P[Expr] = P( convert | parens | arrayDef | arrayDefDefault | getArray | callFunction | getArraySize | numberFloat | number | ident | constant | str | char)
 
   def defVal[_: P] = P("val " ~ ident ~ typeDef.?).map{
     case(ident, Some(varType)) => Expr.DefVal(ident, varType)
@@ -113,10 +115,15 @@ object Parser {
 
   def retFunction[_: P]: P[Expr.Return] = P("return" ~/ prefixExpr).map(Expr.Return)
 
-  def typeDef[_: P]: P[Type] = P(":" ~/ StringIn("int", "char").!).map{
+  def typeDef[_: P]: P[Type] = P(":" ~/ (typeBase | typeArray))
+
+  def typeArray[_: P]: P[Type] =  P("Array" ~/ "[" ~ typeBase ~ "]").map(x=>Type.Array(x))
+
+  def typeBase[_: P]: P[Type] = P(StringIn("int", "char", "float", "string").!).map{
     case "int" => Type.Num();
     case "char" => Type.Character();
     case "float" => Type.NumFloat();
+    case "string" => Type.Str();
   }
 
   def parens[_: P] = P("(" ~/ (binOp | prefixExpr) ~ ")")
@@ -190,7 +197,7 @@ object Parser {
   })
   def number[_: P]: P[Expr.Num] = P( "-".!.? ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.Num(Integer.parseInt(x)))
   def numberFloat[_: P]: P[Expr.NumFloat] = P( "-".? ~~ CharsWhileIn("0-9", 1) ~~ "." ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.NumFloat(x.toFloat))
-  //def char[_: P]: P[Expr.Num] = P( "-".!.? ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.Num(Integer.parseInt(x)))
+  def char[_: P]: P[Expr.Character] = P("'" ~/ SingleChar.! ~/ "'").map(x=>Expr.Character(x.charAt(0)));
   def constant[_: P]: P[Expr] = P( trueC | falseC )
   def trueC[_: P]: P[Expr.True] = P("true").map(_ => Expr.True())
   def falseC[_: P]: P[Expr.False] = P("false").map(_ => Expr.False())
@@ -273,12 +280,16 @@ object ToAssembly {
     //converted += convert(input, defaultReg, Map() )._1;
     converted += "format_num:\n        db  \"%d\", 10, 0\n"
     converted += "format_float:\n        db  \"%f\", 10, 0\n"
+    converted += "format_string:\n        db  \"%s\", 10, 0\n"
+    converted += "format_char:\n        db  \"%c\", 10, 0\n"
+    converted += stringLiterals.mkString
     //converted.split("\n").zipWithIndex.foldLeft("")((acc, v)=> acc +s"\nline${v._2}:\n"+ v._1)
     converted
   }
   var lineNr = 0;
   var ifCounter = 0;
   var subconditionCounter: Int = 0;
+  var stringLiterals: List[String] = List()
   var functions: List[FunctionInfo] = List();
   var functionScope: FunctionInfo = FunctionInfo("main", List(), Type.Num());
   private def convert(input: Expr, reg: List[String], env: Env): (String, Type) = {
@@ -338,6 +349,8 @@ object ToAssembly {
         }
         case None => throw new Exception (s"function of name $name undefined");
       }
+      case Expr.Str(value) => (defineString(value, reg), Type.Str())
+      case Expr.Character(value) => (s"mov ${reg.head}, '${value}'\n", Type.Character())
       case Expr.Nothing() => ("", Type.Undefined());
       case _ => throw new Exception ("not interpreted yet :(");
     }
@@ -493,6 +506,7 @@ object ToAssembly {
     s"mov ${reg.tail.head}, ${code}\n" + s"mov ${reg.head}, [${reg.tail.head}+${index*8}]\n"
   }
   def defineArray(size: Int, defaultValues: List[Expr], env: Env): (String, Type) = {
+    //TODO use registers instead of r9
     var ret = s"mov rdi, ${size+1}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n" + "mov r9, rax\n";
     var elemType: Type = Type.Undefined();
     ret += defaultValues.zipWithIndex.map{case (entry, index) => {
@@ -504,6 +518,13 @@ object ToAssembly {
     ret += s"mov rax, 0${size}d\n" + setArrayDirect("[rsp]", 0)
     ret += "pop rax\n"
     (ret, Type.Array(size, elemType))
+  }
+  def defineString(value: String, reg: List[String]): String = {
+    //TODO Make definitions dynamic also
+    //var ret = s"mov rdi, ${value.length+1}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n" + "mov r9, rax\n";
+    val label = s"string_${stringLiterals.length}";
+    stringLiterals = stringLiterals :+ s"$label:\n        db  \"${value}\", 10, 0\n"
+    s"mov ${reg.head}, $label\n"
   }
 
   def lookup(tofind: String, env: Env): (String, Variable) = {
@@ -574,6 +595,8 @@ object ToAssembly {
     converted._2 match {
       case Type.Num() => converted._1 + printTemplate("format_num");
       case Type.NumFloat() => converted._1 + "movq xmm0, rax\n" + "mov rdi, format_float\n" + "mov rax, 1\n" + "call printf\n"
+      case Type.Str() => converted._1 + printTemplate("format_string");
+      case Type.Character() => converted._1 + printTemplate("format_char");
       case _ => throw new Exception(s"input of type ${converted._2} not recognized in print")
     }
   }
