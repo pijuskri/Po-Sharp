@@ -1,6 +1,7 @@
 def main(): int {
     val a: string = "lol";
-    print('b');
+    val b: array[char] = array('b', 'h');
+    print(b);
     return 0;
 }
 /*
