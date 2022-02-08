@@ -54,8 +54,10 @@ object Type {
   case class Num() extends Type
   case class NumFloat() extends Type
   case class Character() extends Type
-  case class Str() extends Type
+  //case class Str() extends Type
+  //val Str = () => Array(Character())
   case class Array(elemType: Type) extends Type
+
   //case class Array(size: Int, elemType: Type) extends Type
 }
 case class InputVar(name: String, varType: Type)

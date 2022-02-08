@@ -59,7 +59,7 @@ object Parser {
     case "int" => Type.Num();
     case "char" => Type.Character();
     case "float" => Type.NumFloat();
-    case "string" => Type.Str();
+    case "string" => Type.Array(Type.Character());
   }
 
   def parens[_: P] = P("(" ~/ (binOp | prefixExpr) ~ ")")
@@ -127,7 +127,7 @@ object Parser {
 
   def whileLoop[_: P]: P[Expr.While] = P("while" ~/ condition ~ block).map((input)=>Expr.While(input._1, input._2))
 
-  def str[_: P]: P[Expr] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(x=>Expr.Str(x+"\\u0000"))
+  def str[_: P]: P[Expr] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(x=>Expr.Str(x+"\u0000"))
   def ident[_: P]: P[Expr.Ident] = P(CharIn("a-zA-Z_") ~~ CharsWhileIn("a-zA-Z0-9_", 0)).!.map((input) => {
     //checkForReservedKeyword(Expr.Ident(input))
     Expr.Ident(input)

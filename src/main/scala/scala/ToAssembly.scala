@@ -104,8 +104,9 @@ object ToAssembly {
         }
         case None => throw new Exception (s"function of name $name undefined");
       }
-      case Expr.Str(value) => (defineString(value, reg), Type.Str())
-      case Expr.Character(value) => (s"mov ${reg.head}, '${value}'\n", Type.Character())
+      //case Expr.Str(value) => (defineString(value, reg), Type.Str())
+      case Expr.Str(value) => (defineArray(value.length, value.map(x=>Expr.Character(x)).toList, env)._1, Type.Array(Type.Character()))
+      case Expr.Character(value) => (s"mov ${reg.head}, ${value.toInt}\n", Type.Character())
       case Expr.Nothing() => ("", Type.Undefined());
       case _ => throw new Exception ("not interpreted yet :(");
     }
@@ -257,30 +258,11 @@ object ToAssembly {
     case (code, varType) => throw new Exception(s"trying to access variable ${name.name} as an array, has type $varType")
   }
   def setArrayDirect(code: String, index: Int, size: Int): String = {
-    //s"mov rdi, ${code}\n" + s"${sizeToKeyword(size)} [rdi+${index*size}], rax\n"
-    /*
-    if(size == 8)
-      s"mov rdi, ${code}\n" + s"mov [rdi+${index*size}], rax\n"
-    else {
-      s"mov rdi, ${code}\n" + s"mov [rdi+${index*size}], al\n"
-    }
-     */
     s"mov rdi, ${code}\n" + s"mov [rdi+${index*size}], ${sizeToReg(size, "rax")}\n"
   }
   def getArrayDirect(code: String, index: Int, size: Int, reg: List[String]): String = {
-    //s"${sizeToKeyM(size)} ${reg.tail.head}, ${code}\n" + s"${sizeToKeyword(size)} ${reg.head}, [${reg.tail.head}+${index*size}]\n"
     s"mov ${reg.tail.head}, ${code}\n" + s"mov ${reg.head}, [${reg.tail.head}+${index*size}]\n"
   }
-  /*
-  def sizeToKeyword(size: Int): String = size match {
-    case 8 => "mov"
-    case 1 => "movzx"
-  }
-  def sizeToKeyM(size: Int): String = size match {
-    case 8 => ""
-    case 1 => "byte"
-  }
-   */
   val fullToByteReg: Map[String, String] = Map(("rax", "al"), ("rdi", "dil"))
   def sizeToReg(size: Int, reg: String): String = size match {
     case 8 => reg
@@ -291,9 +273,9 @@ object ToAssembly {
     case Type.Character() => 1
     case Type.Num() => 8
   }
-  //def arrTypeToKey(valtype: Type): String = sizeToKeyword(arraySizeFromType(valtype));
 
   def defineArray(size: Int, defaultValues: List[Expr], env: Env): (String, Type) = {
+    println(defaultValues.mkString);
     var elemType: Type = Type.Undefined();
     var ret = defaultValues.zipWithIndex.map{case (entry, index) => {
       val converted = convert(entry, defaultReg, env)
@@ -385,7 +367,7 @@ object ToAssembly {
     converted._2 match {
       case Type.Num() => converted._1 + printTemplate("format_num");
       case Type.NumFloat() => converted._1 + "movq xmm0, rax\n" + "mov rdi, format_float\n" + "mov rax, 1\n" + "call printf\n"
-      case Type.Str() => converted._1 + printTemplate("format_string");
+      //case (Type.Str) => converted._1 + printTemplate("format_string");
       case Type.Character() => converted._1 + printTemplate("format_char");
       case Type.Array(Type.Character()) => converted._1 + "add rax, 8\n" + printTemplate("format_string");
       case _ => throw new Exception(s"input of type ${converted._2} not recognized in print")
