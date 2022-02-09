@@ -84,8 +84,8 @@ object ToAssembly {
         (s"mov ${reg.head}, ${look._1}\n", look._2.varType)
       }
       case Expr.Block(lines) => convertBlock(lines, reg, env);
-      case Expr.DefineArray(size, defaultValues) => conv(size) match {
-        case (code, Type.Num()) => defineArray(code, defaultValues, env)
+      case Expr.DefineArray(size, elemType, defaultValues) => conv(size) match {
+        case (code, Type.Num()) => defineArray(code, elemType, defaultValues, env)
         case (code, x) => throw new Exception(s"not number when defining array size, got input of type $x")
       }
       case Expr.GetArray(name, index) => getArray(name, index, reg, env);
@@ -109,7 +109,7 @@ object ToAssembly {
         case None => throw new Exception (s"function of name $name undefined");
       }
       //case Expr.Str(value) => (defineString(value, reg), Type.Str())
-      case Expr.Str(value) => (defineArrayKnown(value.length, value.map(x=>Expr.Character(x)).toList, env)._1, Type.Array(Type.Character()))
+      case Expr.Str(value) => (defineArrayKnown(value.length, Type.Character(), value.map(x=>Expr.Character(x)).toList, env)._1, Type.Array(Type.Character()))
       case Expr.Character(value) => (s"mov ${reg.head}, ${value.toInt}\n", Type.Character())
       case Expr.Nothing() => ("", Type.Undefined());
       case _ => throw new Exception ("not interpreted yet :(");
@@ -228,10 +228,20 @@ object ToAssembly {
   def setval(name: String, raxType: Type, env: Env): (String, Env) = {
     val look = lookup(name, env);
     var newenv = env;
-    if(look._2.varType != raxType) {
-      if(look._2.varType == Type.Undefined()) newenv = env.map(x=>if(x._1==name) (x._1, Variable(x._2.pointer, raxType)) else x)
-      else throw new Exception(s"trying to set variable of type ${look._2.varType} to $raxType")
+    (look._2.varType, raxType) match {
+      case (Type.Undefined(), Type.Undefined()) => {}
+      case (Type.Undefined(), ass) => newenv = env.map(x=>if(x._1==name) (x._1, Variable(x._2.pointer, raxType)) else x)
+      case (x,y) => throw new Exception(s"trying to set variable of type ${look._2.varType} to $raxType")
     }
+    /*
+    if(look._2.varType == Type.Undefined()) raxType match {
+      case Type.Undefined() => newenv =
+      case Type.Array(Type.Undefined()) => newenv = env.map(x=>if(x._1==name) (x._1, Variable(x._2.pointer, Type.Array(raxType))) else x)
+      case x => println(x);
+    }
+    else if(look._2.varType != raxType) throw new Exception(s"trying to set variable of type ${look._2.varType} to $raxType")
+     */
+
     (s"mov qword ${look._1}, rax\n", newenv)
   }
   //TODO add runtime index checking
@@ -279,12 +289,12 @@ object ToAssembly {
     case Type.Num() => 8
   }
 
-  def defineArrayKnown(size: Int, defaultValues: List[Expr], env: Env): (String, Type) = {
-    defineArray(s"mov rax, 0${size}d\n", defaultValues, env)
+  def defineArrayKnown(size: Int, setElemType:Type, defaultValues: List[Expr], env: Env): (String, Type) = {
+    defineArray(s"mov rax, 0${size}d\n", setElemType, defaultValues, env)
   }
   //TODO use available registers or save, not rax
-  def defineArray(size: String, defaultValues: List[Expr], env: Env): (String, Type) = {
-    var elemType: Type = Type.Undefined();
+  def defineArray(size: String, setElemType:Type, defaultValues: List[Expr], env: Env): (String, Type) = {
+    var elemType: Type = setElemType;
     var ret = defaultValues.zipWithIndex.map{case (entry, index) => {
       val converted = convert(entry, defaultReg, env)
       if(elemType == Type.Undefined()) elemType = converted._2;

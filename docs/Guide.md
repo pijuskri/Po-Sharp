@@ -38,9 +38,14 @@ def main(): int {
     a = (a + 3); // assing to variable
     print(a);
     val b: int = 3; //variables can also have types
-    // currently only integers are supported
 }
 ```
+
+#### Currently supported Types:
+* int
+* string
+* char
+* array[*type*]
 
 ### Floats
 
@@ -102,10 +107,11 @@ def main(): int {
 
 ```
 def main(): int {
-    val a = array[8]; // define an array using array keyword and size
+    val a = array[int][8]; // define an array using array keyword, type and size
               // arrays are initialized with 0
     a[0] = 5; // rest of the syntax is the same as c
     print(a[0]);
+    
     val b = array(1, 2, 3); //arrays can also be initialized with default values
                             // their size is equal to the default values list
 

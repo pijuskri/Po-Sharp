@@ -139,7 +139,7 @@ def fib(n: int): int {
 <div id="todo"></div>
 
 * Loops (for)
-* dynamic arrays/array size at runtime
+* dynamic arrays
 * library functions
 * Input filename (perhaps make compiled version for release)
 * user input

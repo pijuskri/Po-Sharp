@@ -33,7 +33,7 @@ object Expr{
 
   case class GetArray(array: Ident, index: Expr) extends Expr
   case class SetArray(array: Ident, index: Expr, value: Expr) extends Expr
-  case class DefineArray(size: Expr, defaultValues: List[Expr]) extends Expr
+  case class DefineArray(size: Expr, elemType:Type, defaultValues: List[Expr]) extends Expr
   case class ConcatArray(left: Expr, right: Expr) extends Expr
   case class ArraySize(array: Ident) extends Expr
 
