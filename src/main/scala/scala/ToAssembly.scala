@@ -37,7 +37,7 @@ object ToAssembly {
     converted += "format_string:\n        db  \"%s\", 10, 0\n"
     converted += "format_char:\n        db  \"%c\", 10, 0\n"
     converted += stringLiterals.mkString
-    //converted.split("\n").zipWithIndex.foldLeft("")((acc, v)=> acc +s"\nline${v._2}:\n"+ v._1)
+    converted = converted.split("\n").zipWithIndex.foldLeft("")((acc, v)=> acc +s"\nline${v._2}:\n"+ v._1)
     converted
   }
   var lineNr = 0;
@@ -47,6 +47,7 @@ object ToAssembly {
   var functions: List[FunctionInfo] = List();
   var functionScope: FunctionInfo = FunctionInfo("main", List(), Type.Num());
   private def convert(input: Expr, reg: List[String], env: Env): (String, Type) = {
+    val conv = (_input: Expr) => convert(_input, reg, env)
     input match {
       case Expr.Num(value) => (s"mov ${reg.head}, 0${value}d\n", Type.Num())
       case Expr.NumFloat(value) => {
@@ -83,7 +84,10 @@ object ToAssembly {
         (s"mov ${reg.head}, ${look._1}\n", look._2.varType)
       }
       case Expr.Block(lines) => convertBlock(lines, reg, env);
-      case Expr.DefineArray(size, defaultValues) => defineArray(size, defaultValues, env)
+      case Expr.DefineArray(size, defaultValues) => conv(size) match {
+        case (code, Type.Num()) => defineArray(code, defaultValues, env)
+        case (code, x) => throw new Exception(s"not number when defining array size, got input of type $x")
+      }
       case Expr.GetArray(name, index) => getArray(name, index, reg, env);
       case Expr.ArraySize(name) => getArraySize(name, reg, env);
       case Expr.CallF(name, args) => functions.find(x=>x.name == name) match {
@@ -105,7 +109,7 @@ object ToAssembly {
         case None => throw new Exception (s"function of name $name undefined");
       }
       //case Expr.Str(value) => (defineString(value, reg), Type.Str())
-      case Expr.Str(value) => (defineArray(value.length, value.map(x=>Expr.Character(x)).toList, env)._1, Type.Array(Type.Character()))
+      case Expr.Str(value) => (defineArrayKnown(value.length, value.map(x=>Expr.Character(x)).toList, env)._1, Type.Array(Type.Character()))
       case Expr.Character(value) => (s"mov ${reg.head}, ${value.toInt}\n", Type.Character())
       case Expr.Nothing() => ("", Type.Undefined());
       case _ => throw new Exception ("not interpreted yet :(");
@@ -257,6 +261,7 @@ object ToAssembly {
     }
     case (code, varType) => throw new Exception(s"trying to access variable ${name.name} as an array, has type $varType")
   }
+  //TODO not safe when default values use rdi
   def setArrayDirect(code: String, index: Int, size: Int): String = {
     s"mov rdi, ${code}\n" + s"mov [rdi+${index*size}], ${sizeToReg(size, "rax")}\n"
   }
@@ -274,8 +279,11 @@ object ToAssembly {
     case Type.Num() => 8
   }
 
-  def defineArray(size: Int, defaultValues: List[Expr], env: Env): (String, Type) = {
-    println(defaultValues.mkString);
+  def defineArrayKnown(size: Int, defaultValues: List[Expr], env: Env): (String, Type) = {
+    defineArray(s"mov rax, 0${size}d\n", defaultValues, env)
+  }
+  //TODO use available registers or save, not rax
+  def defineArray(size: String, defaultValues: List[Expr], env: Env): (String, Type) = {
     var elemType: Type = Type.Undefined();
     var ret = defaultValues.zipWithIndex.map{case (entry, index) => {
       val converted = convert(entry, defaultReg, env)
@@ -284,13 +292,14 @@ object ToAssembly {
       converted._1 + setArrayDirect("[rsp]", skipArrSize(index, arraySizeFromType(elemType)), arraySizeFromType(elemType));
     }}.mkString;
     val array_elem_size = arraySizeFromType(elemType);
-    val array_def = s"mov rdi, ${size+1}\n" + s"mov rsi, ${array_elem_size}\n" + "call calloc\n" + "push r9\npush rax\n" + "mov r9, rax\n";
+    val array_def = size + "push rax\n" + "add rax, 1\n" + s"mov rdi, rax\n" + s"mov rsi, ${array_elem_size}\n" + "call calloc\n" + "push rax\n"
     ret = array_def + ret;
-    ret += s"mov rax, 0${size}d\n" + setArrayDirect("[rsp]", 0, 8)
-    ret += "pop rax\npop r9\n"
+    ret += "pop r9\npop rax\n" + setArrayDirect("[rsp-16]", 0, 8)
+    ret += "mov rax, r9\n"
     (ret, Type.Array(elemType))
   }
   def skipArrSize(index: Int, size: Int): Int = index + (8/size)
+  /*
   def defineString(value: String, reg: List[String]): String = {
     //TODO Make definitions dynamic also
     //var ret = s"mov rdi, ${value.length+1}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n" + "mov r9, rax\n";
@@ -298,6 +307,7 @@ object ToAssembly {
     stringLiterals = stringLiterals :+ s"$label:\n        db  \"${value}\", 10, 0\n"
     s"mov ${reg.head}, $label\n"
   }
+   */
 
   def lookup(tofind: String, env: Env): (String, Variable) = {
     val ret = lookupOffset(tofind, env)

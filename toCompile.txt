@@ -1,8 +1,11 @@
 def main(): int {
     //val a: string = "lol";
     //print(a);
-    val b: array[char] = array('b', 'h');
-    print(b);
+    //val b: array[char] = array('b', 'h');
+    //print(b);
+    //val a: array[int] = array[2];
+    val a = array[(5+5)];
+    print(a.size);
     return 0;
 }
 /*

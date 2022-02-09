@@ -24,7 +24,7 @@ object Parser {
   def line[_: P]: P[Expr] = P(expr ~/ ";")
   def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | retFunction | IfOp | whileLoop | print)
 
-  def prefixExpr[_: P]: P[Expr] = P( convert | parens | arrayDef | arrayDefDefault | getArray | callFunction | getArraySize | numberFloat | number | ident | constant | str | char)
+  def prefixExpr[_: P]: P[Expr] = P( NoCut(convert) | parens | arrayDef | arrayDefDefault | getArray | callFunction | getArraySize | numberFloat | number | ident | constant | str | char)
 
   def defVal[_: P] = P("val " ~/ ident ~ typeDef.?).map{
     case(ident, Some(varType)) => Expr.DefVal(ident, varType)
@@ -42,8 +42,8 @@ object Parser {
     ));
   })
    */
-  def arrayDef[_: P]: P[Expr.DefineArray] = P("array" ~ "[" ~/ number ~ "]").map(x=> Expr.DefineArray(x.value, List()))
-  def arrayDefDefault[_: P]: P[Expr.DefineArray] = P("array" ~ "(" ~/ prefixExpr.rep(sep = ",") ~ ")").map(x=> Expr.DefineArray(x.size, x.toList))
+  def arrayDef[_: P]: P[Expr.DefineArray] = P("array" ~ "[" ~/ prefixExpr ~ "]").map(x=> Expr.DefineArray(x, List()))
+  def arrayDefDefault[_: P]: P[Expr.DefineArray] = P("array" ~ "(" ~/ prefixExpr.rep(sep = ",") ~ ")").map(x=> Expr.DefineArray(Expr.Num(x.size), x.toList))
 
   def getArray[_: P]: P[Expr.GetArray] = P(ident ~ "[" ~/ prefixExpr ~ "]").map((x) => Expr.GetArray(x._1, x._2))
   def setArray[_: P]: P[Expr.SetArray] = P(ident ~ "[" ~/ prefixExpr ~ "]" ~/ "=" ~ prefixExpr).map((x) => Expr.SetArray(x._1, x._2, x._3))
