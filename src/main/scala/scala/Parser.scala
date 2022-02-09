@@ -22,9 +22,9 @@ object Parser {
     case _ => acc :+ el;
   } )).map(x=>Expr.Block(x))
   def line[_: P]: P[Expr] = P(expr ~/ ";")
-  def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | retFunction | IfOp | whileLoop | print)
+  def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | retFunction | IfOp | whileLoop | print | callFunction)
 
-  def prefixExpr[_: P]: P[Expr] = P( NoCut(convert) | parens | arrayDef | arrayDefDefault | getArray | callFunction | getArraySize | numberFloat | number | ident | constant | str | char)
+  def prefixExpr[_: P]: P[Expr] = P( NoCut(convert) | parens | arrayDef | arrayDefDefault | getArray | getArraySize | callFunction | numberFloat | number | ident | constant | str | char)
 
   def defVal[_: P] = P("val " ~/ ident ~ typeDef.?).map{
     case(ident, Some(varType)) => Expr.DefVal(ident, varType)
@@ -47,9 +47,9 @@ object Parser {
 
   def getArray[_: P]: P[Expr.GetArray] = P(ident ~ "[" ~/ prefixExpr ~ "]").map((x) => Expr.GetArray(x._1, x._2))
   def setArray[_: P]: P[Expr.SetArray] = P(ident ~ "[" ~/ prefixExpr ~ "]" ~/ "=" ~ prefixExpr).map((x) => Expr.SetArray(x._1, x._2, x._3))
-  def getArraySize[_: P]: P[Expr.ArraySize] = P(ident ~ ".size").map((x) => Expr.ArraySize(x))
+  def getArraySize[_: P]: P[Expr.ArraySize] = P(ident ~~ ".size").map((x) => Expr.ArraySize(x))
 
-  def retFunction[_: P]: P[Expr.Return] = P("return" ~/ prefixExpr).map(Expr.Return)
+
 
   def typeDef[_: P]: P[Type] = P(":" ~/ (typeBase | typeArray))
 
@@ -82,9 +82,10 @@ object Parser {
   })
    */
 
-  def callFunction[_: P]: P[Expr.CallF] = P( ident ~ "(" ~/ prefixExpr.rep(sep = ",") ~ ")" ).map{
+  def callFunction[_: P]: P[Expr.CallF] = P( ident ~ "(" ~/ prefixExpr.rep(sep = ",") ~/ ")" ).map{
     case (name, args) => Expr.CallF(name.name, args.toList);
   }
+  def retFunction[_: P]: P[Expr.Return] = P("return" ~/ prefixExpr.?).map(Expr.Return)
 
   def binOp[_: P] = P( prefixExpr ~ ( StringIn("+", "-", "*", "/", "++").! ~/ prefixExpr).rep(1)).map(list => parseBinOpList(list._1, list._2.toList))
 
@@ -139,7 +140,7 @@ object Parser {
   def trueC[_: P]: P[Expr.True] = P("true").map(_ => Expr.True())
   def falseC[_: P]: P[Expr.False] = P("false").map(_ => Expr.False())
 
-  def print[_: P]: P[Expr.Print] = P("print" ~/ "(" ~/ ( NoCut(binOp) | prefixExpr ) ~ ")").map(Expr.Print)
+  def print[_: P]: P[Expr.Print] = P("print" ~ "(" ~/ ( NoCut(binOp) | prefixExpr ) ~ ")").map(Expr.Print)
 
   class ParseException(s: String) extends RuntimeException(s)
   val reservedKeywords = List("def", "val", "if", "while", "true", "false", "array")

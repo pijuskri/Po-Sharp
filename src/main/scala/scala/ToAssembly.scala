@@ -161,11 +161,15 @@ object ToAssembly {
         ifCounter += 1;
         ret
       }
-      case Expr.Return(value) => {
-        val converted = convert(value, defaultReg, env)
-        if(functionScope.retType != converted._2) throw new Exception(s"Wrong return argument: function ${functionScope.name} expects ${functionScope.retType}, got ${converted._2}")
-        converted._1 + "leave\nret\n"
+      case Expr.Return(in) => in match {
+        case Some(value) => {
+          val converted = convert(value, defaultReg, env)
+          if (functionScope.retType != converted._2) throw new Exception(s"Wrong return argument: function ${functionScope.name} expects ${functionScope.retType}, got ${converted._2}")
+          converted._1 + "leave\nret\n"
+        }
+        case None => "leave\nret\n";
       }
+      case x@Expr.CallF(n, a) => convert(x, reg, env)._1;
       case _ => throw new Exception(lines.head.toString + " should not be in block lines")
     }
     if(lines.tail.nonEmpty) {
@@ -242,6 +246,7 @@ object ToAssembly {
     (look._2.varType, raxType) match {
       case (Type.Undefined(), Type.Undefined()) => {}
       case (Type.Undefined(), ass) => newenv = env.map(x=>if(x._1==name) (x._1, Variable(x._2.pointer, raxType)) else x)
+      case (x,y) if x == y => {}
       case (x,y) => throw new Exception(s"trying to set variable of type ${look._2.varType} to $raxType")
     }
 

@@ -1,13 +1,35 @@
 def main(): int {
-    //val a: string = "lol";
-    //print(a);
-    //val b: array[char] = array('b', 'h');
-    //print(b);
-    //val a: array[int] = array[int][2];
-    val a = array[int][(5+5)];
-    print(a.size);
+    val a = array(1, 2, 3);
+    val b = array(4, 5, 6);
+    val c = concat(a, b);
+    print_arr(c);
     return 0;
 }
+
+def concat(a: array[int], b: array[int]): array[int] {
+    val combined = (a.size + b.size);
+    val ret = array[int][combined];
+    val i = 0;
+    while(i < a.size) {
+        ret[i] = a[i];
+        i = (i + 1);
+    };
+    i = 0;
+    while(i < b.size) {
+         ret[(i + a.size)] = b[i];
+         i = (i + 1);
+    };
+    return ret;
+}
+def print_arr(a: array[int]) {
+    val b = 0;
+    while(b < a.size) {
+        print(a[b]);
+        b = (b + 1);
+    };
+    return;
+}
+
 
 /*
 def main(): int {

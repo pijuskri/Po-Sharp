@@ -40,7 +40,7 @@ object Expr{
   //case class StackVar(offset: Int) extends Expr
   case class Func(name: String, argNames: List[InputVar], retType: Type, body: Expr.Block) extends Expr
   case class CallF(name: String, args: List[Expr]) extends Expr
-  case class Return(value: Expr) extends Expr
+  case class Return(value: Option[Expr]) extends Expr
 
   case class Convert(value: Expr, to: Type) extends Expr
 
