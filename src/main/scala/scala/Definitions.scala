@@ -54,10 +54,13 @@ object Type {
   case class Num() extends Type
   case class NumFloat() extends Type
   case class Character() extends Type
-  //case class Str() extends Type
-  //val Str = () => Array(Character())
   case class Array(elemType: Type) extends Type
 
+  def shortS(value: Type): String = value match {
+    case Num() => "i"; case NumFloat() => "f";
+    case Character() => "c"
+    case Array(inner) => "arr_"+shortS(inner)+"_"
+  }
   //case class Array(size: Int, elemType: Type) extends Type
 }
 case class InputVar(name: String, varType: Type)

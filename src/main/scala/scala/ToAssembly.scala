@@ -1,5 +1,7 @@
 package scala
 
+import scala.Type.shortS
+
 object ToAssembly {
   val defaultReg = List("rax", "rdi", "rsi", "rdx", "rcx", "r8", "r9", "r10", "r11")
   def convertMain(input: Expr): String = {
@@ -37,7 +39,7 @@ object ToAssembly {
     converted += "format_string:\n        db  \"%s\", 10, 0\n"
     converted += "format_char:\n        db  \"%c\", 10, 0\n"
     converted += stringLiterals.mkString
-    converted = converted.split("\n").zipWithIndex.foldLeft("")((acc, v)=> acc +s"\nline${v._2}:\n"+ v._1)
+    //converted = converted.split("\n").zipWithIndex.foldLeft("")((acc, v)=> acc +s"\nline${v._2}:\n"+ v._1)
     converted
   }
   var lineNr = 0;
@@ -90,23 +92,31 @@ object ToAssembly {
       }
       case Expr.GetArray(name, index) => getArray(name, index, reg, env);
       case Expr.ArraySize(name) => getArraySize(name, reg, env);
-      case Expr.CallF(name, args) => functions.find(x=>x.name == name) match {
-        case Some(FunctionInfo(p, argTypes, retType)) => {
-          if(argTypes.length != args.length) throw new Exception (s"wrong number of arguments: expected ${argTypes.length}, got ${args.length}")
-          val usedReg = defaultReg.filter(x => !reg.contains(x));
-          var ret = usedReg.map(x=>s"push $x\n").mkString
-          ret += args.zipWithIndex.map{case (arg, index) => {
-            val converted = convert(arg, reg, env)
-            if(converted._2 != argTypes(index)) throw new Exception (s"wrong argument type: expected ${argTypes(index)}, got ${converted._2}")
-            converted._1 + s"push ${reg.head}\n"
-          }}.mkString
-          ret += args.zipWithIndex.reverse.map{case (arg, index) => s"pop ${functionCallReg(index)}\n"}.mkString
-          ret += s"call $name\n"
-          ret += s"mov ${reg.head}, rax\n"
-          ret += usedReg.reverse.map(x=>s"pop $x\n").mkString
-          (ret, retType)
+      case Expr.CallF(name, args) => {
+        val usedReg = defaultReg.filter(x => !reg.contains(x));
+        var ret = usedReg.map(x=>s"push $x\n").mkString
+        val argRet = args.zipWithIndex.map{case (arg, index) => {
+          val converted = convert(arg, reg, env)
+          (converted._1 + s"push ${reg.head}\n", converted._2)
+        }}
+        val argInputTypes = argRet.map(x=>x._2)
+        ret += argRet.map(x=>x._1).mkString
+        ret += args.zipWithIndex.reverse.map{case (arg, index) => s"pop ${functionCallReg(index)}\n"}.mkString
+        ret += s"call ${fNameSignature(name, argInputTypes)}\n"
+        ret += s"mov ${reg.head}, rax\n"
+        ret += usedReg.reverse.map(x=>s"pop $x\n").mkString
+
+        //if(converted._2 != argTypes(index)) throw new Exception (s"wrong argument type: expected ${argTypes(index)}, got ${converted._2}")
+        functions.find(x=>x.name == name) match {
+          case Some(x) => ; case None => throw new Exception(s"function of name $name undefined");
         }
-        case None => throw new Exception (s"function of name $name undefined");
+        functions.find(x=>x.name == name && argInputTypes == x.args) match {
+          case Some(FunctionInfo(p, argTypes, retType)) => {
+            //if(argTypes.length != args.length) throw new Exception (s"wrong number of arguments: expected ${argTypes.length}, got ${args.length}")
+            (ret, retType)
+          }
+          case None => throw new Exception(s"no overload of function $name matches argument list $argInputTypes");
+        }
       }
       //case Expr.Str(value) => (defineString(value, reg), Type.Str())
       case Expr.Str(value) => (defineArrayKnown(value.length, Type.Character(), value.map(x=>Expr.Character(x)).toList, env)._1, Type.Array(Type.Character()))
@@ -203,11 +213,12 @@ object ToAssembly {
     functions = input.functions.map(x=> FunctionInfo(x.name, x.argNames.map(y=>y.varType), x.retType))
   }
   val functionCallReg = List( "rdi", "rsi", "rdx", "rcx", "r8", "r9")
+  def fNameSignature(name: String, args: List[Type]):String = name + (if(args.isEmpty) "" else "_") + args.map(x=>shortS(x)).mkString
   private def defineFunctions(input: Expr.TopLevel): String = {
     input.functions.map(function => {
-      val info = functions.find(x=>x.name == function.name).get;
+      val info = functions.find(x=>x.name == function.name && x.args==function.argNames.map(y=>y.varType)).get;
       functionScope = info;
-      var ret = s"${function.name}:\n" +
+      var ret = s"${fNameSignature(info.name, info.args)}:\n" +
         """ push rbp
           | mov rbp, rsp
           | sub rsp, 256
@@ -233,14 +244,6 @@ object ToAssembly {
       case (Type.Undefined(), ass) => newenv = env.map(x=>if(x._1==name) (x._1, Variable(x._2.pointer, raxType)) else x)
       case (x,y) => throw new Exception(s"trying to set variable of type ${look._2.varType} to $raxType")
     }
-    /*
-    if(look._2.varType == Type.Undefined()) raxType match {
-      case Type.Undefined() => newenv =
-      case Type.Array(Type.Undefined()) => newenv = env.map(x=>if(x._1==name) (x._1, Variable(x._2.pointer, Type.Array(raxType))) else x)
-      case x => println(x);
-    }
-    else if(look._2.varType != raxType) throw new Exception(s"trying to set variable of type ${look._2.varType} to $raxType")
-     */
 
     (s"mov qword ${look._1}, rax\n", newenv)
   }
