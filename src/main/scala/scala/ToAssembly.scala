@@ -179,7 +179,7 @@ object ToAssembly {
       lineNr+=1;
       defstring += convertBlock(extendLines.tail, defaultReg, newenv)._1
     }
-    //else defstring += freeMemory(env)
+    defstring += freeMemory((newenv.toSet diff env.toSet).toMap)
     (defstring, Type.Undefined());
   }
   private def convertCondition(input: Expr, reg: List[String], env: Env, orMode: Boolean, trueLabel: String, falseLabel: String): String = {

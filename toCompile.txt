@@ -1,7 +1,9 @@
 def main(): int {
     for(val d = 0; d < 5; d+=1;) {
+        val a = array(1,2,3);
         print(d);
     };
+    return 0;
 }
 
 
