@@ -22,15 +22,25 @@ object Parser {
     case _ => acc :+ el;
   } )).map(x=>Expr.Block(x))
   def line[_: P]: P[Expr] = P(expr ~/ ";")
-  def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | retFunction | IfOp | whileLoop | print | callFunction)
+  def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | retFunction | IfOp | whileLoop | forLoop | print | callFunction)
 
   def prefixExpr[_: P]: P[Expr] = P( NoCut(convert) | parens | arrayDef | arrayDefDefault | getArray | getArraySize | callFunction | numberFloat | number | ident | constant | str | char)
 
-  def defVal[_: P] = P("val " ~/ ident ~ typeDef.?).map{
+  def defVal[_: P]: P[Expr.DefVal] = P("val " ~/ ident ~ typeDef.?).map{
     case(ident, Some(varType)) => Expr.DefVal(ident, varType)
     case(ident, None) => Expr.DefVal(ident, Type.Undefined())
   }
-  def setVal[_: P] = P(ident ~ "=" ~/ prefixExpr).map(x => Expr.SetVal(x._1, x._2))
+  //def setVal[_: P]: P[Expr.SetVal] = P(ident ~ "=" ~/ prefixExpr).map(x => Expr.SetVal(x._1, x._2))
+  def setVal[_: P]: P[Expr.SetVal] = P(ident ~ StringIn("+=", "-=", "*=", "/=", "=").! ~/ prefixExpr).map(x => {
+    val ret = x._2 match {
+      case "=" => x._3
+      case "+=" => Expr.Plus(x._1, x._3)
+      case "-=" => Expr.Minus(x._1, x._3)
+      case "*=" => Expr.Mult(x._1, x._3)
+      case "/=" => Expr.Div(x._1, x._3)
+    }
+    Expr.SetVal(x._1, ret)
+  })
   def defAndSetVal[_: P] = P( defVal ~ "=" ~ prefixExpr).map(x => Expr.ExtendBlock(List(x._1, Expr.SetVal(x._1.variable, x._2))))
 
   /*
@@ -84,7 +94,7 @@ object Parser {
 
   def callFunction[_: P]: P[Expr.CallF] = P( ident ~ "(" ~/ prefixExpr.rep(sep = ",") ~/ ")" ).map{
     case (name, args) => Expr.CallF(name.name, args.toList);
-  }
+  }.filter((x) => !reservedKeywords.contains(x.name) )
   def retFunction[_: P]: P[Expr.Return] = P("return" ~/ prefixExpr.?).map(Expr.Return)
 
   def binOp[_: P] = P( prefixExpr ~ ( StringIn("+", "-", "*", "/", "++").! ~/ prefixExpr).rep(1)).map(list => parseBinOpList(list._1, list._2.toList))
@@ -106,7 +116,8 @@ object Parser {
     case (cond, ex_true, None) => Expr.If(cond, ex_true, Expr.Block(List()));
   }
 
-  def condition[_: P]: P[Expr] = P("(" ~/ ( negate | condOp | conditionBin | constant | condition ) ~ ")")
+  def condition[_: P]: P[Expr] = P("(" ~/ conditionNoParen ~ ")")
+  def conditionNoParen[_: P]: P[Expr] = P(negate | condOp | conditionBin | constant | condition )
   def negate[_: P]: P[Expr.Not] = P( "!" ~/ condition).map(Expr.Not)
   def conditionBin[_: P]: P[Expr] = P( prefixExpr ~ StringIn("==", "!=", ">", "<", "<=", ">=").! ~/ prefixExpr).map{
     case (left, operator, right) => operator match {
@@ -127,12 +138,16 @@ object Parser {
   def elseOp[_: P] = P("else" ~/ block)
 
   def whileLoop[_: P]: P[Expr.While] = P("while" ~/ condition ~ block).map((input)=>Expr.While(input._1, input._2))
+  def forLoop[_: P]: P[Expr.Block] = P("for" ~/ "(" ~ line ~ conditionNoParen ~ ";" ~ line ~ ")" ~/ block).map((input)=> {
+    Expr.Block(List( input._1, Expr.While(input._2, Expr.Block(input._4.lines :+ input._3))));
+  })
 
   def str[_: P]: P[Expr] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(x=>Expr.Str(x+"\u0000"))
   def ident[_: P]: P[Expr.Ident] = P(CharIn("a-zA-Z_") ~~ CharsWhileIn("a-zA-Z0-9_", 0)).!.map((input) => {
     //checkForReservedKeyword(Expr.Ident(input))
+    //if(reservedKeywords.contains(input))
     Expr.Ident(input)
-  })
+  }).filter((x) => !reservedKeywords.contains(x) )
   def number[_: P]: P[Expr.Num] = P( "-".!.? ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.Num(Integer.parseInt(x)))
   def numberFloat[_: P]: P[Expr.NumFloat] = P( "-".? ~~ CharsWhileIn("0-9", 1) ~~ "." ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.NumFloat(x.toFloat))
   def char[_: P]: P[Expr.Character] = P("'" ~/ AnyChar.! ~/ "'").map(x=>Expr.Character(x.charAt(0)));
@@ -143,7 +158,7 @@ object Parser {
   def print[_: P]: P[Expr.Print] = P("print" ~ "(" ~/ ( NoCut(binOp) | prefixExpr ) ~ ")").map(Expr.Print)
 
   class ParseException(s: String) extends RuntimeException(s)
-  val reservedKeywords = List("def", "val", "if", "while", "true", "false", "array")
+  val reservedKeywords = List("def", "val", "if", "while", "true", "false", "array", "for")
   def checkForReservedKeyword(input: Expr.Ident): Unit ={
     if(reservedKeywords.contains(input.name)) throw new ParseException(s"${input.name} is a reserved keyword");
   }

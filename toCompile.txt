@@ -1,8 +1,19 @@
 def main(): int {
+    for(val d = 0; d < 5; d+=1;) {
+        print(d);
+    };
+}
+
+
+/*
+def main(): int {
     val a = array(1, 2, 3);
     val b = array(4, 5, 6);
     val c = concat(a, b);
-    print_arr(c);
+    for(val d = 0; d < 5; d+=1;) {
+        print(d);
+    };
+    //print_arr(c);
     return 0;
 }
 
@@ -12,12 +23,12 @@ def concat(a: array[int], b: array[int]): array[int] {
     val i = 0;
     while(i < a.size) {
         ret[i] = a[i];
-        i = (i + 1);
+        i += 1;
     };
     i = 0;
     while(i < b.size) {
          ret[(i + a.size)] = b[i];
-         i = (i + 1);
+         i += 1;
     };
     return ret;
 }
@@ -25,11 +36,11 @@ def print_arr(a: array[int]) {
     val b = 0;
     while(b < a.size) {
         print(a[b]);
-        b = (b + 1);
+        b += 1;
     };
     return;
 }
-
+*/
 
 /*
 def main(): int {

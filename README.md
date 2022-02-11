@@ -139,13 +139,14 @@ def fib(n: int): int {
 <div id="todo"></div>
 
 * Loops (for)
+* Structs
 * dynamic arrays
 * library functions
 * Input filename (perhaps make compiled version for release)
 * user input
+* Objects
 * typeof
 * Garbage collector
-* Objects/structs
 * multiple files
 * packages
 * File i/o

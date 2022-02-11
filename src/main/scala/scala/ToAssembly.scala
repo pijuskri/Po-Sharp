@@ -128,6 +128,7 @@ object ToAssembly {
   private def convertBlock(lines: List[Expr], reg: List[String], env: Env): (String, Type) = {
     if(lines.isEmpty) return ("", Type.Undefined());
     var newenv = env;
+    var extendLines = lines;
     var defstring: String = lines.head match {
       case Expr.SetVal(Expr.Ident(name), value) => {
         val converted = convert(value, reg, env);
@@ -170,11 +171,13 @@ object ToAssembly {
         case None => "leave\nret\n";
       }
       case x@Expr.CallF(n, a) => convert(x, reg, env)._1;
+      case x@Expr.Block(n) => convert(x, reg, env)._1;
+      case Expr.ExtendBlock(n) => extendLines = extendLines.head +: n ::: extendLines.tail;""
       case _ => throw new Exception(lines.head.toString + " should not be in block lines")
     }
-    if(lines.tail.nonEmpty) {
+    if(extendLines.tail.nonEmpty) {
       lineNr+=1;
-      defstring += convert(Expr.Block(lines.tail), defaultReg, newenv)._1
+      defstring += convertBlock(extendLines.tail, defaultReg, newenv)._1
     }
     //else defstring += freeMemory(env)
     (defstring, Type.Undefined());
