@@ -110,7 +110,7 @@ object ToAssembly {
         functions.find(x=>x.name == name) match {
           case Some(x) => ; case None => throw new Exception(s"function of name $name undefined");
         }
-        functions.find(x=>x.name == name && argInputTypes == x.args) match {
+        functions.find(x=>x.name == name && argInputTypes == x.args.map(x=>x.varType)) match {
           case Some(FunctionInfo(p, argTypes, retType)) => {
             //if(argTypes.length != args.length) throw new Exception (s"wrong number of arguments: expected ${argTypes.length}, got ${args.length}")
             (ret, retType)
@@ -162,13 +162,19 @@ object ToAssembly {
         ifCounter += 1;
         ret
       }
-      case Expr.Return(in) => in match {
-        case Some(value) => {
-          val converted = convert(value, defaultReg, env)
-          if (functionScope.retType != converted._2) throw new Exception(s"Wrong return argument: function ${functionScope.name} expects ${functionScope.retType}, got ${converted._2}")
-          converted._1 + "leave\nret\n"
+      //freeMemory((env.toSet diff functionScope.args).toMap) +
+      case Expr.Return(in) => {
+        val defInside = (env.keys.toSet diff functionScope.args.map(x=>x.name).toSet);
+        val free = freeMemory(env.filter(x=>defInside.contains(x._1)))
+        in match {
+          case Some(value) => {
+            val converted = convert(value, defaultReg, env)
+            if (functionScope.retType != converted._2) throw new Exception(s"Wrong return argument: function ${functionScope.name} expects ${functionScope.retType}, got ${converted._2}")
+            converted._1 + free + "leave\nret\n"
+          }
+          case None => free + "leave\nret\n";
         }
-        case None => "leave\nret\n";
+
       }
       case x@Expr.CallF(n, a) => convert(x, reg, env)._1;
       case x@Expr.Block(n) => convert(x, reg, env)._1;
@@ -217,15 +223,15 @@ object ToAssembly {
     ret
   }
   private def declareFunctions(input: Expr.TopLevel): Unit = {
-    functions = input.functions.map(x=> FunctionInfo(x.name, x.argNames.map(y=>y.varType), x.retType))
+    functions = input.functions.map(x=> FunctionInfo(x.name, x.argNames.map(y=>y), x.retType))
   }
   val functionCallReg = List( "rdi", "rsi", "rdx", "rcx", "r8", "r9")
   def fNameSignature(name: String, args: List[Type]):String = name + (if(args.isEmpty) "" else "_") + args.map(x=>shortS(x)).mkString
   private def defineFunctions(input: Expr.TopLevel): String = {
     input.functions.map(function => {
-      val info = functions.find(x=>x.name == function.name && x.args==function.argNames.map(y=>y.varType)).get;
+      val info = functions.find(x=>x.name == function.name && x.args==function.argNames).get;
       functionScope = info;
-      var ret = s"${fNameSignature(info.name, info.args)}:\n" +
+      var ret = "\n" + s"${fNameSignature(info.name, info.args.map(x=>x.varType))}:\n" +
         """ push rbp
           | mov rbp, rsp
           | sub rsp, 256
@@ -410,7 +416,7 @@ object ToAssembly {
   })
 
   type Env = Map[String, Variable]
-  case class FunctionInfo(name: String, args: List[Type], retType: Type)
+  case class FunctionInfo(name: String, args: List[InputVar], retType: Type)
   case class Variable(pointer: Int, varType: Type)
 }
 
