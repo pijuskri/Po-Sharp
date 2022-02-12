@@ -5,9 +5,13 @@ import scala.io.Source
 
 
 object Main extends App {
-  val toCompile = readFile("", "toCompile.txt")
+  var inputFile = "toCompile.txt";
+  if (args.length > 0) {
+    inputFile = args(0)
+  }
+  val toCompile = readFile("", inputFile)
   val parsed = Parser.parseInput(toCompile);
-  println(parsed);
+  //println(parsed);
   println("")
   val asm = ToAssembly.convertMain(parsed);
   println(asm);
