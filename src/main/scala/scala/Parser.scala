@@ -170,7 +170,7 @@ object Parser {
 
   def print[_: P]: P[Expr.Print] = P("print" ~ "(" ~/ ( NoCut(binOp) | prefixExpr ) ~ ")").map(Expr.Print)
 
-  class ParseException(s: String) extends RuntimeException(s)
+  class ParseException(s: String = "") extends RuntimeException(s)
   val reservedKeywords = List("def", "val", "if", "while", "true", "false", "array", "for", "print", "interface")
   def checkForReservedKeyword(input: Expr.Ident): Unit ={
     if(reservedKeywords.contains(input.name)) throw new ParseException(s"${input.name} is a reserved keyword");
