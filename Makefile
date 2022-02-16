@@ -1,15 +1,17 @@
+TARGET_FILE = 'hello'
+
 all: run
 
 #assemble hello.asm
 build:
 	mkdir -p compiled && \
 	cd compiled/ && \
-	nasm -felf64 hello.asm && \
-	gcc -O0 -ggdb -no-pie hello.o -o hello
+	nasm -felf64 $(TARGET_FILE).asm && \
+	gcc -O0 -ggdb -no-pie $(TARGET_FILE).o -o $(TARGET_FILE)
 
 #compile and run asm 
 run: build
-	compiled/hello
+	compiled/$(TARGET_FILE)
 
 #compile Po# using sbt and then run it, also running the generated .asm
 full: sbt run
