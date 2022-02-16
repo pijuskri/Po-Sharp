@@ -1,6 +1,6 @@
 package scala
 
-import scala.Type.shortS
+import scala.Type.{UserType, shortS}
 
 object ToAssembly {
   val defaultReg = List("rax", "rdi", "rsi", "rdx", "rcx", "r8", "r9", "r10", "r11")
@@ -30,6 +30,7 @@ object ToAssembly {
         |""".stripMargin;
     input match { case x: Expr.TopLevel => {
       declareFunctions(x);
+      declareInterfaces(x);
       converted += defineFunctions(x);
     }}
 
@@ -47,10 +48,12 @@ object ToAssembly {
   var subconditionCounter: Int = 0;
   var stringLiterals: List[String] = List()
   var functions: List[FunctionInfo] = List();
+  var interfaces: List[InterfaceInfo] = List();
   var functionScope: FunctionInfo = FunctionInfo("main", List(), Type.Num());
+
   private def convert(input: Expr, reg: List[String], env: Env): (String, Type) = {
     val conv = (_input: Expr) => convert(_input, reg, env)
-    input match {
+    val ret = input match {
       case Expr.Num(value) => (s"mov ${reg.head}, 0${value}d\n", Type.Num())
       case Expr.NumFloat(value) => {
         (s"mov ${reg.head}, __float64__(${value.toString})\n", Type.NumFloat())
@@ -90,6 +93,30 @@ object ToAssembly {
         case (code, Type.Num()) => defineArray(code, elemType, defaultValues, env)
         case (code, x) => throw new Exception(s"not number when defining array size, got input of type $x")
       }
+      case Expr.InstantiateInterface(name, values) => interfaces.find(x=>x.name == name) match {
+        case Some(intf) => {
+          var ret = values.zipWithIndex.map{case (entry, index) => {
+            val converted = convert(entry, defaultReg, env);
+            if(converted._2 != intf.args(index).varType) throw new Exception(s"expected type ${intf.args(index).varType}" +
+              s" for interface element ${intf.args(index).name}, but got ${converted._2}")
+            converted._1 + setArrayDirect("[rsp]", index, 8);
+          }}.mkString;
+          val array_def = s"mov rdi, ${intf.args.length}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n"
+          ret = array_def + ret + "pop rax\n";
+          (ret, Type.Interface(intf.args))
+        }
+        case None => throw new Exception(s"no such interface defined")
+      }
+      case Expr.GetInterfaceProp(intf, prop) => conv(intf) match {
+        case(code, Type.Interface(props)) => props.find(x=>x.name == prop) match {
+          case Some(n) => {
+            val ret = code + getArrayDirect(reg.head, props.indexOf(n), 8, reg)
+            (ret, n.varType)
+          }
+          case None => throw new Exception(s"interface ${interfaces.find(x=>x.args == props).get.name} does not have a property ${prop}")
+        }
+        case (x, valType) => throw new Exception(s"expected a interface, got ${valType}")
+      }
       case Expr.GetArray(name, index) => getArray(name, index, reg, env);
       case Expr.ArraySize(name) => getArraySize(name, reg, env);
       case Expr.CallF(name, args) => {
@@ -124,8 +151,11 @@ object ToAssembly {
       case Expr.Nothing() => ("", Type.Undefined());
       case _ => throw new Exception ("not interpreted yet :(");
     }
+    (ret._1, makeUserTypesConcrete(ret._2))
   }
+  //TODO add line awareness for error reporting
   private def convertBlock(lines: List[Expr], reg: List[String], env: Env): (String, Type) = {
+    val conv = (_input: Expr) => convert(_input, reg, env)
     if(lines.isEmpty) return ("", Type.Undefined());
     var newenv = env;
     var extendLines = lines;
@@ -142,6 +172,17 @@ object ToAssembly {
         newenv = arr._2;
         converted._1 + arr._1
       };
+      case Expr.SetInterfaceProp(intf, prop, valueRaw) => convert(intf, reg.tail, env) match {
+        case(code, Type.Interface(props)) => props.find(x=>x.name == prop) match {
+          case Some(n) => conv(valueRaw) match {
+            case (valCode, valType) if(valType == n.varType) =>
+              valCode + code + setArrayDirect(s"${reg.tail.head}", props.indexOf(n), 8)
+            case (_, valType) => throw new Exception(s"trying to property ${n.name} of type ${n.varType} to incompatible type ${valType}")
+          }
+          case None => throw new Exception(s"interface ${interfaces.find(x=>x.args == props).get.name} does not have a property ${prop}")
+        }
+        case (x, valType) => throw new Exception(s"expected a interface, got ${valType}")
+      }
       case Expr.DefVal(Expr.Ident(name), varType) => newenv = newVar(name, varType, newenv); ""
       case Expr.Print(toPrint) => printInterp(toPrint, env);
       case Expr.If(condition, ifTrue, ifFalse) => {
@@ -223,7 +264,37 @@ object ToAssembly {
     ret
   }
   private def declareFunctions(input: Expr.TopLevel): Unit = {
-    functions = input.functions.map(x=> FunctionInfo(x.name, x.argNames.map(y=>y), x.retType))
+    functions = input.functions.map(x=> FunctionInfo(x.name, x.argNames, x.retType))
+  }
+  private def declareInterfaces(input: Expr.TopLevel): Unit = {
+    interfaces = input.interfaces.map(x=> InterfaceInfo(x.name, x.props))
+    interfaces = interfaces.map(x=>
+      InterfaceInfo( x.name, x.args.map(y=>
+        InputVar(y.name, traverseTypeTree(y.varType))
+      ))
+    )
+  }
+  def makeUserTypesConcrete(input: Type): Type = input match {
+    case UserType(name) => interfaces.find(x=>x.name == name) match {
+      case Some(n) => Type.Interface(n.args)
+      case _ => throw new Exception (s"no interface of name $name");
+    }
+    case x => x
+  }
+  //, func: Type => Type
+  //TODO avoid traversing the same interfaces by creating a list of marking which interfaces are concretely defined
+  def traverseTypeTree(input: Type): Type = input match {
+    case UserType(name) => interfaces.find(x=>x.name == name) match {
+      case Some(n) => traverseTypeTree(Type.Interface(n.args)) match {
+        case t@Type.Interface(newargs) =>
+          interfaces = interfaces.map(x=>if(x == n) InterfaceInfo(x.name, newargs) else x)
+          t
+      }
+      case _ => throw new Exception (s"no interface of name $name");
+    }
+    case Type.Interface(args) => Type.Interface(args.map(x=>InputVar(x.name, traverseTypeTree(x.varType))))
+    case Type.Array(valType) => traverseTypeTree(valType)
+    case x => x
   }
   val functionCallReg = List( "rdi", "rsi", "rdx", "rcx", "r8", "r9")
   def fNameSignature(name: String, args: List[Type]):String = name + (if(args.isEmpty) "" else "_") + args.map(x=>shortS(x)).mkString
@@ -412,11 +483,13 @@ object ToAssembly {
   }
   def freeMemory(env: Env): String = env.foldLeft("")((acc, entry) => entry._2.varType match {
     case Type.Array(arrType) => acc + s"mov rdi, [rbp-${entry._2.pointer}]\n" + "call free\n";
+    case Type.Interface(a) => acc + s"mov rdi, [rbp-${entry._2.pointer}]\n" + "call free\n";
     case _ => acc
   })
 
   type Env = Map[String, Variable]
   case class FunctionInfo(name: String, args: List[InputVar], retType: Type)
+  case class InterfaceInfo(name: String, args: List[InputVar])
   case class Variable(pointer: Int, varType: Type)
 }
 

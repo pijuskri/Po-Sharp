@@ -1,3 +1,22 @@
+interface coord {
+    x: my,
+    y: int
+}
+interface my {
+    a: int
+}
+def main(): int {
+    val a = new coord{new my{1}, 2};
+    val d = a.x;
+    print(d.a);
+    //a.x = 5;
+    //print(a.x);
+    return 0;
+}
+
+
+
+/*
 def main(): int {
     val a = array(1, 2, 3);
     val b = array(4, 5, 6);
@@ -33,7 +52,7 @@ def print_arr(a: array[int]) {
     };
     return;
 }
-
+*/
 /*
 def main(): int {
   val a = 9;

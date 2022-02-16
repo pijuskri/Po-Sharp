@@ -139,6 +139,7 @@ def fib(n: int): int {
 <div id="todo"></div>
 
 * Structs
+* Enums
 * user input
 * dynamic arrays
 * library functions

@@ -42,9 +42,14 @@ object Expr{
   case class CallF(name: String, args: List[Expr]) extends Expr
   case class Return(value: Option[Expr]) extends Expr
 
+  case class DefineInterface(name: String, props: List[InputVar]) extends Expr
+  case class InstantiateInterface(intf: String, defaultValues: List[Expr]) extends Expr
+  case class GetInterfaceProp(intf: Expr, prop: String) extends Expr
+  case class SetInterfaceProp(intf: Expr, prop: String, value: Expr) extends Expr
+
   case class Convert(value: Expr, to: Type) extends Expr
 
-  case class TopLevel(functions: List[Func]) extends Expr
+  case class TopLevel(functions: List[Func], interfaces: List[DefineInterface]) extends Expr
   case class Nothing() extends Expr
 }
 
@@ -55,9 +60,14 @@ object Type {
   case class NumFloat() extends Type
   case class Character() extends Type
   case class Array(elemType: Type) extends Type
+  case class Interface(properties: List[InputVar]) extends Type
+
+  //to be converted when parsing
+  case class UserType(name: String) extends Type
 
   def shortS(value: Type): String = value match {
-    case Num() => "i"; case NumFloat() => "f";
+    case Num() => "i";
+    case NumFloat() => "f";
     case Character() => "c"
     case Array(inner) => "arr_"+shortS(inner)+"_"
   }

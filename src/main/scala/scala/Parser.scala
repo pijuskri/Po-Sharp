@@ -5,7 +5,16 @@ import fastparse._
 
 object Parser {
 
-  def topLevel[_: P]: P[Expr.TopLevel] = P(function.rep).map(x=>Expr.TopLevel(x.toList))
+  def topLevel[_: P]: P[Expr.TopLevel] = P((function | interfaceDef).rep(1)).map(x=>{
+    println(x)
+    var func: List[Expr.Func] = List()
+    var intf: List[Expr.DefineInterface] = List()
+    x.foreach{
+      case y@Expr.Func(a,b,c,d) => func = func :+ y
+      case y@Expr.DefineInterface(a,b) => intf = intf :+ y
+    }
+    Expr.TopLevel(func, intf)
+  })
   def function[_: P]: P[Expr.Func] = P("def " ~/ ident ~ "(" ~/ functionArgs ~ ")" ~/ typeDef.? ~ block).map{
     case (name, args, retType, body) => {
       val ret = retType match {
@@ -15,6 +24,9 @@ object Parser {
       Expr.Func(name.name, args, ret, body)
     }
   }
+  def interfaceDef[_: P]: P[Expr.DefineInterface] = P("interface " ~ ident ~/ "{" ~ (ident ~ typeDef).rep(sep = ",") ~ "}").map(props=>
+    Expr.DefineInterface(props._1.name, props._2.toList.map(x=>InputVar(x._1.name, x._2)))
+  )
   def functionArgs[_: P]: P[List[InputVar]] = P( (ident ~ typeDef).rep(sep = ",")).map(x=>x.map(y=>InputVar(y._1.name, y._2)).toList)
   //def parseType[_: P] : P[Type] = P(ident ~ "(" ~/ ")")
   def block[_: P] = P("{" ~/ line.rep(0) ~ "}").map ( lines => lines.foldLeft(List(): List[Expr])( (acc, el) => el match {
@@ -22,9 +34,9 @@ object Parser {
     case _ => acc :+ el;
   } )).map(x=>Expr.Block(x))
   def line[_: P]: P[Expr] = P(expr ~/ ";")
-  def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | retFunction | IfOp | whileLoop | forLoop | print | callFunction)
+  def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | setProp | retFunction | IfOp | whileLoop | forLoop | print | callFunction)
 
-  def prefixExpr[_: P]: P[Expr] = P( NoCut(convert) | parens | arrayDef | arrayDefDefault | getArray | getArraySize | callFunction | numberFloat | number | ident | constant | str | char)
+  def prefixExpr[_: P]: P[Expr] = P( NoCut(convert) | parens | arrayDef | arrayDefDefault | instanceInterface | getArray | getArraySize | getProp | callFunction | numberFloat | number | ident | constant | str | char)
 
   def defVal[_: P]: P[Expr.DefVal] = P("val " ~/ ident ~ typeDef.?).map{
     case(ident, Some(varType)) => Expr.DefVal(ident, varType)
@@ -60,16 +72,20 @@ object Parser {
   def getArraySize[_: P]: P[Expr.ArraySize] = P(ident ~~ ".size").map((x) => Expr.ArraySize(x))
 
 
+  def instanceInterface[_: P]: P[Expr.InstantiateInterface] = P("new " ~/ ident ~ "{" ~/ prefixExpr.rep(sep = ",") ~ "}").map(x=>Expr.InstantiateInterface(x._1.name,x._2.toList))
+  def returnsInterface[_: P] = P(NoCut(callFunction) | getArray | ident)
+  def getProp[_: P]: P[Expr.GetInterfaceProp] = P(returnsInterface ~ "." ~/ ident).map(x=>Expr.GetInterfaceProp(x._1, x._2.name))
+  def setProp[_: P]: P[Expr.SetInterfaceProp] = P(returnsInterface ~ "." ~/ ident ~ "=" ~ prefixExpr).map(x=>Expr.SetInterfaceProp(x._1,x._2.name, x._3))
 
-  def typeDef[_: P]: P[Type] = P(":" ~/ (typeBase | typeArray))
-
+  def typeDef[_: P]: P[Type] = P(":" ~/ (typeBase | typeArray | typeUser))
   def typeArray[_: P]: P[Type] =  P("array" ~/ "[" ~ typeBase ~ "]").map(x=>Type.Array(x))
-
-  def typeBase[_: P]: P[Type] = P(StringIn("int", "char", "float", "string").!).map{
+  def typeUser[_: P]: P[Type] =  P(ident).map(x=>Type.UserType(x.name))
+  def typeBase[_: P]: P[Type] = P(StringIn("int", "char", "float", "string", "void").!).map{
     case "int" => Type.Num();
     case "char" => Type.Character();
     case "float" => Type.NumFloat();
     case "string" => Type.Array(Type.Character());
+    case "void" => Type.Undefined();
   }
 
   def parens[_: P] = P("(" ~/ (binOp | prefixExpr) ~ ")")
@@ -134,7 +150,6 @@ object Parser {
     case (first, "&&", second, rest) => Expr.And(List(first, second) ::: rest.toList)
     case (first, "||", second, rest) => Expr.Or(List(first, second) ::: rest.toList)
   }
-
   def elseOp[_: P] = P("else" ~/ block)
 
   def whileLoop[_: P]: P[Expr.While] = P("while" ~/ condition ~ block).map((input)=>Expr.While(input._1, input._2))
@@ -144,8 +159,6 @@ object Parser {
 
   def str[_: P]: P[Expr] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(x=>Expr.Str(x+"\u0000"))
   def ident[_: P]: P[Expr.Ident] = P(CharIn("a-zA-Z_") ~~ CharsWhileIn("a-zA-Z0-9_", 0)).!.map((input) => {
-    //checkForReservedKeyword(Expr.Ident(input))
-    //if(reservedKeywords.contains(input))
     Expr.Ident(input)
   }).filter((x) => !reservedKeywords.contains(x) )
   def number[_: P]: P[Expr.Num] = P( "-".!.? ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.Num(Integer.parseInt(x)))
@@ -158,7 +171,7 @@ object Parser {
   def print[_: P]: P[Expr.Print] = P("print" ~ "(" ~/ ( NoCut(binOp) | prefixExpr ) ~ ")").map(Expr.Print)
 
   class ParseException(s: String) extends RuntimeException(s)
-  val reservedKeywords = List("def", "val", "if", "while", "true", "false", "array", "for")
+  val reservedKeywords = List("def", "val", "if", "while", "true", "false", "array", "for", "print", "interface")
   def checkForReservedKeyword(input: Expr.Ident): Unit ={
     if(reservedKeywords.contains(input.name)) throw new ParseException(s"${input.name} is a reserved keyword");
   }
