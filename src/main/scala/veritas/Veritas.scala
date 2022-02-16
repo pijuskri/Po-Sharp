@@ -4,6 +4,9 @@ import org.reflections.Reflections
 import org.reflections.scanners.Scanners.TypesAnnotated
 import org.reflections.util.ConfigurationBuilder
 
+import java.io.File
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.{Executors, TimeUnit}
 import scala.Main.writeToFile
 import scala.io.AnsiColor._
 import scala.reflect.internal.util.ScalaClassLoader
@@ -37,7 +40,7 @@ class PoSharpScript(code: String) {
    */
   def ShouldThrow(expected: Throwable): (Boolean, String) = {
     try {
-      Veritas.GetOutput(code)
+      Veritas.GetOutput(code, Veritas.getTestName)
     } catch {
       case e: Exception => return handleException(e)
     }
@@ -58,7 +61,7 @@ class PoSharpScript(code: String) {
    * @return
    */
   def Run(): (Boolean, String) = {
-    val output = Veritas.GetOutput(code)
+    val output = Veritas.GetOutput(code, Veritas.getTestName)
 
     if (expected == output) {
       (true, expected)
@@ -70,7 +73,21 @@ class PoSharpScript(code: String) {
 
 object Veritas {
   def main(args: Array[String]): Unit = {
-    RunTests()
+    time(() => RunTests())
+  }
+
+  /**
+   * Times the passed runnable in ms.
+   *
+   * @param task The task to execute
+   */
+  def time(task: Runnable): Unit = {
+    val now = System.currentTimeMillis
+
+    task.run()
+
+    val timeElapsed = System.currentTimeMillis - now
+    println(s"Elapsed time: ${timeElapsed}ms")
   }
 
   /**
@@ -78,8 +95,10 @@ object Veritas {
    * annotation. For a method to be considered a test it must be suffixed with "test".
    */
   def RunTests(): Unit = {
+    val pool = Executors.newFixedThreadPool(10)
+
     var exitCode = 0
-    val out = new StringBuilder
+    val out = new AtomicReference[StringBuilder](new StringBuilder)
 
     // reflection stuff
     val reflections = new Reflections(new ConfigurationBuilder()
@@ -97,49 +116,72 @@ object Veritas {
 
     // Get the class and instantiate it
     res.foreach(c => {
-      val testClass = ScalaClassLoader(getClass.getClassLoader).tryToInitializeClass(c)
-      var lastMethodName = ""
-      try {
-        val instance = ScalaClassLoader(getClass.getClassLoader).create(c)
+      pool.execute(() => {
+        val testClass = ScalaClassLoader(getClass.getClassLoader).tryToInitializeClass(c)
+        var lastMethodName = ""
+        try {
+          val instance = ScalaClassLoader(getClass.getClassLoader).create(c)
 
 
-        // Run all tests in the class
-        testClass.get.getMethods
-          .filter(m => m.getName.toLowerCase().contains("test"))
-          .foreach(el => {
-            // Catches invalid tests (say main is missing from the code snippet)
-            try {
-              lastMethodName = el.getName
-              val (output, actual) = el.invoke(instance).asInstanceOf[(Boolean, String)]
-              if (output) {
-                out.append(s"${el.getName}: $GREEN[PASSED]$RESET\n")
-              } else {
-                out.append(s"${el.getName}: $RED[FAILED]$RESET | $actual\n")
-                exitCode = 1
+          // Run all tests in the class
+          testClass.get.getMethods
+            .filter(m => m.getName.toLowerCase().contains("test"))
+            .foreach(el => {
+              // Catches invalid tests (say main is missing from the code snippet)
+              try {
+                lastMethodName = el.getName
+                val (output, actual) = el.invoke(instance).asInstanceOf[(Boolean, String)]
+                if (output) {
+                  out.get().append(s"${el.getName}: $GREEN[PASSED]$RESET\n")
+                } else {
+                  out.get().append(s"${el.getName}: $RED[FAILED]$RESET | $actual\n")
+                  exitCode = 1
+                }
+              } catch {
+                case e: Exception =>
+                  println(s"${el.getName}: $RED[ERROR]$RESET Could not instantiate $c.$lastMethodName with: $e")
               }
-            } catch {
-              case e: Exception =>
-                println(s"$RED[ERROR]$RESET Could not instantiate $c.$lastMethodName with: $e")
-            }
-          })
-      } catch {
-        case e: Exception =>
-          println(s"$RED[ERROR]$RESET Could not instantiate $c\nException was: $e")
-          System.exit(1)
-      }
+            })
+        } catch {
+          case e: Exception =>
+            println(s"$RED[ERROR]$RESET Could not instantiate $c\nException was: $e")
+        }
+      })
     })
 
+    pool.shutdown()
+    pool.awaitTermination(5, TimeUnit.MINUTES)
     println(out)
-    System.exit(exitCode)
   }
 
-  def GetOutput(input: String): String = {
-    val parsed = Parser.parseInput(input);
-    val asm = ToAssembly.convertMain(parsed);
-    writeToFile(asm, "compiled/", "hello.asm")
-    val tmp = Process("wsl make").!!
+  def GetOutput(input: String, fileName: String): String = {
+    val parsed = Parser.parseInput(input)
+    val asm = ToAssembly.convertMain(parsed)
+    writeToFile(asm, "compiled/", s"$fileName.asm")
+    val tmp = Process(s"wsl make TARGET_FILE=$fileName").!!
+
+    // Delete all files created by writeToFile and the tests
+    new File("compiled")
+      .listFiles
+      .filter(_.isFile)
+      .filter(_.getName.contains(fileName))
+      .foreach(el => el.delete())
 
     tmp.split("\n").last.trim
+  }
+
+  /**
+   * Creates a unique-enough™ filename for the current test by concatenating the class name the test comes from with
+   * the test name itself.
+   *
+   * @return The test name
+   */
+  def getTestName: String = {
+    val stackTrace = new Throwable().getStackTrace()(2)
+    val className = stackTrace.getClassName
+    val methodName = stackTrace.getMethodName
+
+    s"$className.$methodName"
   }
 
   class Test extends scala.annotation.ConstantAnnotation {}
