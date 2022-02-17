@@ -134,24 +134,32 @@ def fib(n: int): int {
 * Functions
 * Float support
 * Strings
+* Structs
 
 ### To do
 <div id="todo"></div>
 
-* Structs
-* Enums
-* user input
-* dynamic arrays
+#### Major
+
+* lambda functions
 * library functions
-* String manipulation
-* Input filename (perhaps make compiled version for release)
 * Objects
 * typeof
 * Garbage collector
 * multiple files
 * packages
 * File i/o
-* Optimisations with register/stack combinations
+* Optimisation
+
+#### Minor
+
+* dynamic arrays
+* ref/out
+* Enums
+* String manipulation
+* user input
+* online demo for posharp
+* Input filename (perhaps make compiled version for release)
 
 
 <!-- MARKDOWN LINKS & IMAGES -->

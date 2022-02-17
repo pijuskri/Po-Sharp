@@ -7,8 +7,8 @@ interface my {
 }
 def main(): int {
     val a = new coord{new my{1}, 2};
-    val d = a.x;
-    print(d.a);
+    val d = (a.x).a;
+    print(d);
     //a.x = 5;
     //print(a.x);
     return 0;

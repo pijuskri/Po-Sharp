@@ -4,7 +4,7 @@ import fastparse.JavaWhitespace._
 import fastparse._
 
 object Parser {
-
+  //TODO fix issue when spacing at start of file
   def topLevel[_: P]: P[Expr.TopLevel] = P((function | interfaceDef).rep(1)).map(x=>{
     println(x)
     var func: List[Expr.Func] = List()
@@ -36,7 +36,7 @@ object Parser {
   def line[_: P]: P[Expr] = P(expr ~/ ";")
   def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | setProp | retFunction | IfOp | whileLoop | forLoop | print | callFunction)
 
-  def prefixExpr[_: P]: P[Expr] = P( NoCut(convert) | parens | arrayDef | arrayDefDefault | instanceInterface | getArray | getArraySize | getProp | callFunction | numberFloat | number | ident | constant | str | char)
+  def prefixExpr[_: P]: P[Expr] = P( NoCut(convert) |  NoCut(parens) | arrayDef | arrayDefDefault | instanceInterface | getArray | getArraySize | getProp | callFunction | numberFloat | number | ident | constant | str | char)
 
   def defVal[_: P]: P[Expr.DefVal] = P("val " ~/ ident ~ typeDef.?).map{
     case(ident, Some(varType)) => Expr.DefVal(ident, varType)
@@ -73,7 +73,7 @@ object Parser {
 
 
   def instanceInterface[_: P]: P[Expr.InstantiateInterface] = P("new " ~/ ident ~ "{" ~/ prefixExpr.rep(sep = ",") ~ "}").map(x=>Expr.InstantiateInterface(x._1.name,x._2.toList))
-  def returnsInterface[_: P] = P(NoCut(callFunction) | getArray | ident)
+  def returnsInterface[_: P] = P(NoCut(callFunction) | getArray | ident | ("(" ~ getProp ~ ")"))
   def getProp[_: P]: P[Expr.GetInterfaceProp] = P(returnsInterface ~ "." ~/ ident).map(x=>Expr.GetInterfaceProp(x._1, x._2.name))
   def setProp[_: P]: P[Expr.SetInterfaceProp] = P(returnsInterface ~ "." ~/ ident ~ "=" ~ prefixExpr).map(x=>Expr.SetInterfaceProp(x._1,x._2.name, x._3))
 

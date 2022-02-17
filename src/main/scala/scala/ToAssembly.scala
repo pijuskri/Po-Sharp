@@ -481,9 +481,10 @@ object ToAssembly {
       case _ => throw new Exception(s"input of type ${converted._2} not recognized in print")
     }
   }
+  //TODO runtime memory garbage collection, currently only pointers on the stack are handled
   def freeMemory(env: Env): String = env.foldLeft("")((acc, entry) => entry._2.varType match {
     case Type.Array(arrType) => acc + s"mov rdi, [rbp-${entry._2.pointer}]\n" + "call free\n";
-    case Type.Interface(a) => acc + s"mov rdi, [rbp-${entry._2.pointer}]\n" + "call free\n";
+    case Type.Interface(args) => acc + s"mov rdi, [rbp-${entry._2.pointer}]\n" + "call free\n";
     case _ => acc
   })
 
