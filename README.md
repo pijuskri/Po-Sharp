@@ -135,6 +135,7 @@ def fib(n: int): int {
 * Float support
 * Strings
 * Structs
+* Enums
 
 ### To do
 <div id="todo"></div>
@@ -155,7 +156,6 @@ def fib(n: int): int {
 
 * dynamic arrays
 * ref/out
-* Enums
 * Type alias
 * Interface union
 * String manipulation

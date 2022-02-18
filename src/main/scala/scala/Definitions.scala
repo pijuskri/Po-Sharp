@@ -44,12 +44,15 @@ object Expr{
 
   case class DefineInterface(name: String, props: List[InputVar]) extends Expr
   case class InstantiateInterface(intf: String, defaultValues: List[Expr]) extends Expr
-  case class GetInterfaceProp(intf: Expr, prop: String) extends Expr
+  //case class GetInterfaceProp(intf: Expr, prop: String) extends Expr
+  case class GetProperty(obj: Expr, prop: String) extends Expr
   case class SetInterfaceProp(intf: Expr, prop: String, value: Expr) extends Expr
+
+  case class DefineEnum(name: String, props: List[String])
 
   case class Convert(value: Expr, to: Type) extends Expr
 
-  case class TopLevel(functions: List[Func], interfaces: List[DefineInterface]) extends Expr
+  case class TopLevel(functions: List[Func], interfaces: List[DefineInterface], enums: List[DefineEnum]) extends Expr
   case class Nothing() extends Expr
 }
 
@@ -61,6 +64,8 @@ object Type {
   case class Character() extends Type
   case class Array(elemType: Type) extends Type
   case class Interface(properties: List[InputVar]) extends Type
+  case class T1() extends Type
+  case class Enum(el: List[String]) extends Type
 
   //to be converted when parsing
   case class UserType(name: String) extends Type
@@ -70,6 +75,7 @@ object Type {
     case NumFloat() => "f";
     case Character() => "c"
     case Array(inner) => "arr_"+shortS(inner)+"_"
+    case Interface(inner) => "itf_"+inner.map(x=>shortS(x.varType))+"_"
   }
   //case class Array(size: Int, elemType: Type) extends Type
 }

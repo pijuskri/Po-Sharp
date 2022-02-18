@@ -1,16 +1,22 @@
 interface coord {
-    x: my,
+    x: box,
     y: int
 }
-interface my {
-    a: int
+interface box {
+    el: int
+}
+enum car {
+    bmw,
+    ford
 }
 def main(): int {
-    val a = new coord{new my{1}, 2};
-    val d = a.x.a;
+    val a = new coord{new box{1}, 2};
+    val d = a.x.el;
     print(d);
-    a.x.a = 2;
-    print(a.x.a);
+    a.x.el = 2;
+    print(a.x.el);
+    val b = car.ford;
+    print(b);
     return 0;
 }
 

@@ -5,15 +5,16 @@ import fastparse._
 
 object Parser {
   //TODO fix issue when spacing at start of file
-  def topLevel[_: P]: P[Expr.TopLevel] = P(StringIn(" ").? ~(function | interfaceDef).rep(1)).map(x=>{
-    println(x)
+  def topLevel[_: P]: P[Expr.TopLevel] = P(StringIn(" ").? ~(function | interfaceDef | enumDef).rep(1)).map(x=>{
     var func: List[Expr.Func] = List()
     var intf: List[Expr.DefineInterface] = List()
+    var enum: List[Expr.DefineEnum] = List()
     x.foreach{
       case y@Expr.Func(a,b,c,d) => func = func :+ y
       case y@Expr.DefineInterface(a,b) => intf = intf :+ y
+      case y@Expr.DefineEnum(a,b) => enum = enum :+ y
     }
-    Expr.TopLevel(func, intf)
+    Expr.TopLevel(func, intf, enum)
   })
   def function[_: P]: P[Expr.Func] = P("def " ~/ ident ~ "(" ~/ functionArgs ~ ")" ~/ typeDef.? ~ block).map{
     case (name, args, retType, body) => {
@@ -26,6 +27,9 @@ object Parser {
   }
   def interfaceDef[_: P]: P[Expr.DefineInterface] = P("interface " ~ ident ~/ "{" ~ (ident ~ typeDef).rep(sep = ",") ~ "}").map(props=>
     Expr.DefineInterface(props._1.name, props._2.toList.map(x=>InputVar(x._1.name, x._2)))
+  )
+  def enumDef[_: P]: P[Expr.DefineEnum] = P("enum " ~ ident ~/ "{" ~ ident.rep(sep = ",") ~ "}").map(props=>
+    Expr.DefineEnum(props._1.name, props._2.toList.map(x=>x.name))
   )
   def functionArgs[_: P]: P[List[InputVar]] = P( (ident ~ typeDef).rep(sep = ",")).map(x=>x.map(y=>InputVar(y._1.name, y._2)).toList)
   //def parseType[_: P] : P[Type] = P(ident ~ "(" ~/ ")")
@@ -70,28 +74,29 @@ object Parser {
   def setProp[_: P]: P[Expr.SetInterfaceProp] = P(returnsInterface ~ "." ~/ ident ~ "=" ~ prefixExpr).map(x=>Expr.SetInterfaceProp(x._1,x._2.name, x._3))
    */
   def returnsInterface[_: P] = P(NoCut(callFunction) | getArray | ident)
-  def getProp[_: P]: P[Expr.GetInterfaceProp] = P(returnsInterface ~ "." ~ recGetProp.rep(0) ~/ ident).map{
+  def getProp[_: P]: P[Expr.GetProperty] = P(returnsInterface ~ "." ~ recGetProp.rep(0) ~/ ident).map{
     case (first, intermediate, Expr.Ident(name)) =>
       if(intermediate.nonEmpty) {
-        val ret = intermediate.tail.foldRight(Expr.GetInterfaceProp(first, intermediate.head.name))((v, acc) =>
-          Expr.GetInterfaceProp(acc, v.name)
+        val ret = intermediate.tail.foldRight(Expr.GetProperty(first, intermediate.head.name))((v, acc) =>
+          Expr.GetProperty(acc, v.name)
         )
-        Expr.GetInterfaceProp(ret, name)
+        Expr.GetProperty(ret, name)
       }
-      else Expr.GetInterfaceProp(first, name)
+      else Expr.GetProperty(first, name)
   }
   def recGetProp[_: P] = P(ident ~ ".")
-  def setProp[_: P]: P[Expr.SetInterfaceProp] = P(getProp ~ "=" ~ prefixExpr).map(x=>Expr.SetInterfaceProp(x._1.intf,x._1.prop, x._2))
+  def setProp[_: P]: P[Expr.SetInterfaceProp] = P(getProp ~ "=" ~ prefixExpr).map(x=>Expr.SetInterfaceProp(x._1.obj,x._1.prop, x._2))
 
   def typeDef[_: P]: P[Type] = P(":" ~/ (typeBase | typeArray | typeUser))
   def typeArray[_: P]: P[Type] =  P("array" ~/ "[" ~ typeBase ~ "]").map(x=>Type.Array(x))
   def typeUser[_: P]: P[Type] =  P(ident).map(x=>Type.UserType(x.name))
-  def typeBase[_: P]: P[Type] = P(StringIn("int", "char", "float", "string", "void").!).map{
+  def typeBase[_: P]: P[Type] = P(StringIn("int", "char", "float", "string", "void", "T1", "T2").!).map{
     case "int" => Type.Num();
     case "char" => Type.Character();
     case "float" => Type.NumFloat();
     case "string" => Type.Array(Type.Character());
     case "void" => Type.Undefined();
+    case "T1" => Type.T1();
   }
 
   def parens[_: P] = P("(" ~/ (binOp | prefixExpr) ~ ")")

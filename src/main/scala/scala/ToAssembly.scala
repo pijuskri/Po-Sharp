@@ -31,6 +31,7 @@ object ToAssembly {
     input match { case x: Expr.TopLevel => {
       declareFunctions(x);
       declareInterfaces(x);
+      declareEnums(x)
       converted += defineFunctions(x);
     }}
 
@@ -49,6 +50,7 @@ object ToAssembly {
   var stringLiterals: List[String] = List()
   var functions: List[FunctionInfo] = List();
   var interfaces: List[InterfaceInfo] = List();
+  var enums: List[EnumInfo] = List()
   var functionScope: FunctionInfo = FunctionInfo("main", List(), Type.Num());
 
   private def convert(input: Expr, reg: List[String], env: Env): (String, Type) = {
@@ -85,8 +87,15 @@ object ToAssembly {
         case ((code, l), r) => throw new Exception(s"cant convert from type ${l} to type $r")
       }
       case Expr.Ident(name) => {
-        val look = lookup(name, env)
-        (s"mov ${reg.head}, ${look._1}\n", look._2.varType)
+        val isStatic = enums.find(x=>x.name == name)
+        if(isStatic.nonEmpty) {
+          val enumInfo = isStatic.get
+          ("", Type.Enum(enumInfo.el))
+        }
+        else {
+          val look = lookup(name, env)
+          (s"mov ${reg.head}, ${look._1}\n", look._2.varType)
+        }
       }
       case Expr.Block(lines) => convertBlock(lines, reg, env);
       case Expr.DefineArray(size, elemType, defaultValues) => conv(size) match {
@@ -107,7 +116,7 @@ object ToAssembly {
         }
         case None => throw new Exception(s"no such interface defined")
       }
-      case Expr.GetInterfaceProp(intf, prop) => conv(intf) match {
+      case Expr.GetProperty(obj, prop) => conv(obj) match {
         case(code, Type.Interface(props)) => props.find(x=>x.name == prop) match {
           case Some(n) => {
             val ret = code + getArrayDirect(reg.head, props.indexOf(n), 8, reg)
@@ -115,6 +124,7 @@ object ToAssembly {
           }
           case None => throw new Exception(s"interface ${interfaces.find(x=>x.args == props).get.name} does not have a property ${prop}")
         }
+        case (code, Type.Enum(el)) => (s"mov ${reg.head}, 0${el.indexOf(prop)}d\n", Type.Num())
         case (x, valType) => throw new Exception(s"expected a interface, got ${valType}")
       }
       case Expr.GetArray(name, index) => getArray(name, index, reg, env);
@@ -274,6 +284,9 @@ object ToAssembly {
       ))
     )
   }
+  private def declareEnums(input: Expr.TopLevel): Unit = {
+    enums = input.enums.map(x=>EnumInfo(x.name,x.props))
+  }
   def makeUserTypesConcrete(input: Type): Type = input match {
     case UserType(name) => interfaces.find(x=>x.name == name) match {
       case Some(n) => Type.Interface(n.args)
@@ -319,7 +332,7 @@ object ToAssembly {
       ret
     }).mkString
   }
-  //TODO remove type assingmed after fact(causes issues when type is unknown in compile time)
+  //Maybe remove type assingmed after fact(causes issues when type is unknown in compile time)
   def setval(name: String, raxType: Type, env: Env): (String, Env) = {
     val look = lookup(name, env);
     var newenv = env;
@@ -491,6 +504,7 @@ object ToAssembly {
   type Env = Map[String, Variable]
   case class FunctionInfo(name: String, args: List[InputVar], retType: Type)
   case class InterfaceInfo(name: String, args: List[InputVar])
+  case class EnumInfo(name: String, el: List[String])
   case class Variable(pointer: Int, varType: Type)
 }
 
