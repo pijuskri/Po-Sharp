@@ -156,6 +156,8 @@ def fib(n: int): int {
 * dynamic arrays
 * ref/out
 * Enums
+* Type alias
+* Interface union
 * String manipulation
 * user input
 * online demo for posharp

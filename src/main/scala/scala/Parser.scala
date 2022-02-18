@@ -5,7 +5,7 @@ import fastparse._
 
 object Parser {
   //TODO fix issue when spacing at start of file
-  def topLevel[_: P]: P[Expr.TopLevel] = P((function | interfaceDef).rep(1)).map(x=>{
+  def topLevel[_: P]: P[Expr.TopLevel] = P(StringIn(" ").? ~(function | interfaceDef).rep(1)).map(x=>{
     println(x)
     var func: List[Expr.Func] = List()
     var intf: List[Expr.DefineInterface] = List()
