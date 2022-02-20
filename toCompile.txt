@@ -1,3 +1,32 @@
+def main(): int {
+    val a = array(1,2,3);
+    val b = array(4,5,6);
+    val c = concat(a,b);
+    print_arr(c);
+    return 0;
+}
+def concat(a: array[T1], b: array[T1]): array[T1] {
+    val combined = (a.size + b.size);
+    val ret = array[T1][combined];
+    for(val i = 0; i < a.size; i += 1;) {
+        ret[i] = a[i];
+    };
+    for(val i = 0; i < b.size; i += 1;) {
+        ret[(i + a.size)] = b[i];
+    };
+    return ret;
+}
+def print_arr(a: array[int]) {
+    val b = 0;
+    while(b < a.size) {
+        print(a[b]);
+        b += 1;
+    };
+    return;
+}
+
+
+/*
 interface coord {
     x: box,
     y: int
@@ -19,7 +48,7 @@ def main(): int {
     print(b);
     return 0;
 }
-
+*/
 
 
 /*
@@ -50,14 +79,7 @@ def concat(a: array[int], b: array[int]): array[int] {
     };
     return ret;
 }
-def print_arr(a: array[int]) {
-    val b = 0;
-    while(b < a.size) {
-        print(a[b]);
-        b += 1;
-    };
-    return;
-}
+
 */
 /*
 def main(): int {

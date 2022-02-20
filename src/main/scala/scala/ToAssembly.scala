@@ -139,18 +139,34 @@ object ToAssembly {
         val argInputTypes = argRet.map(x=>x._2)
         ret += argRet.map(x=>x._1).mkString
         ret += args.zipWithIndex.reverse.map{case (arg, index) => s"pop ${functionCallReg(index)}\n"}.mkString
-        ret += s"call ${fNameSignature(name, argInputTypes)}\n"
-        ret += s"mov ${reg.head}, rax\n"
-        ret += usedReg.reverse.map(x=>s"pop $x\n").mkString
 
         //if(converted._2 != argTypes(index)) throw new Exception (s"wrong argument type: expected ${argTypes(index)}, got ${converted._2}")
         functions.find(x=>x.name == name) match {
           case Some(x) => ; case None => throw new Exception(s"function of name $name undefined");
         }
-        functions.find(x=>x.name == name && argInputTypes == x.args.map(x=>x.varType)) match {
+        functions.find(x=>x.name == name && Type.compare(argInputTypes, x.args.map(x=>x.varType))) match {
           case Some(FunctionInfo(p, argTypes, retType)) => {
             //if(argTypes.length != args.length) throw new Exception (s"wrong number of arguments: expected ${argTypes.length}, got ${args.length}")
-            (ret, retType)
+            /*
+            val template1Type = argTypes.map(x=>x.varType).zipWithIndex.map{
+              case (Type.T1(), id) => argInputTypes(id)
+              case (Type.Array(Type.T1()), id) => argInputTypes(id)
+            }
+             */
+            //TODO add errors for unexpected behaviour
+            val template1Type = argTypes.map(x=>x.varType).zipWithIndex.find(x=> x._1 == Type.T1() || x._1 == Type.Array(Type.T1())) match {
+              case Some(n) => argInputTypes(n._2)
+              case None => Type.Undefined()
+            }
+            val retTypeTemplated = retType match {
+              case Type.T1() => template1Type
+              case Type.Array(Type.T1()) => template1Type
+              case _ => retType
+            }
+            ret += s"call ${fNameSignature(name, argTypes.map(x=>x.varType))}\n"
+            ret += s"mov ${reg.head}, rax\n"
+            ret += usedReg.reverse.map(x=>s"pop $x\n").mkString
+            (ret, retTypeTemplated)
           }
           case None => throw new Exception(s"no overload of function $name matches argument list $argInputTypes");
         }
@@ -213,10 +229,10 @@ object ToAssembly {
         ifCounter += 1;
         ret
       }
-      //freeMemory((env.toSet diff functionScope.args).toMap) +
       case Expr.Return(in) => {
         val defInside = (env.keys.toSet diff functionScope.args.map(x=>x.name).toSet);
-        val free = freeMemory(env.filter(x=>defInside.contains(x._1)))
+        //TODO fix issue when 2 variables reference same location
+        val free = "" //freeMemory(env.filter(x=>defInside.contains(x._1)))
         in match {
           case Some(value) => {
             val converted = convert(value, defaultReg, env)
@@ -388,6 +404,8 @@ object ToAssembly {
     case Type.Undefined() => 8
     case Type.Character() => 1
     case Type.Num() => 8
+    case Type.NumFloat() => 8
+    case Type.T1() => 8
   }
 
   def defineArrayKnown(size: Int, setElemType:Type, defaultValues: List[Expr], env: Env): (String, Type) = {

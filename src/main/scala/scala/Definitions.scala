@@ -76,7 +76,17 @@ object Type {
     case Character() => "c"
     case Array(inner) => "arr_"+shortS(inner)+"_"
     case Interface(inner) => "itf_"+inner.map(x=>shortS(x.varType))+"_"
+    case T1() => "T1"
   }
-  //case class Array(size: Int, elemType: Type) extends Type
+  def compare(val1: Type, val2: Type): Boolean = (val1, val2) match {
+    case (a,b) if a == b => true
+    case (T1(), _) => true
+    case (_, T1()) => true
+    case (Array(T1()), _) => true
+    case (_, Array(T1())) => true
+    case _ => false
+  }
+  def compare(value: (Type, Type)): Boolean = compare(value._1,value._2)
+  def compare(val1: List[Type], val2: List[Type]): Boolean = (val1 zip val2).forall(x=>compare(x))
 }
 case class InputVar(name: String, varType: Type)
