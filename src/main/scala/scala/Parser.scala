@@ -29,12 +29,23 @@ object Parser {
   )
   def functionArgs[_: P]: P[List[InputVar]] = P( (ident ~ typeDef).rep(sep = ",")).map(x=>x.map(y=>InputVar(y._1.name, y._2)).toList)
   //def parseType[_: P] : P[Type] = P(ident ~ "(" ~/ ")")
-  def block[_: P] = P("{" ~/ line.rep(0) ~ "}").map ( lines => lines.foldLeft(List(): List[Expr])( (acc, el) => el match {
-    case Expr.ExtendBlock(sub) => acc ::: sub;
-    case _ => acc :+ el;
-  } )).map(x=>Expr.Block(x))
+
+  def block[_: P] = P("{" ~/ line.rep(0) ~ "}").map(blockHelper).map(x=>Expr.Block(x))
+
+  def singleLineBlock[_: P] = P(line.rep(min=1,max=1)).map(blockHelper).map(x=>Expr.Block(x))
+
+  def singleStatementBlock[_: P] = P(singleStatement.rep(min=1,max=1)).map(blockHelper).map(x=>Expr.Block(x))
+
+  def blockHelper(tmp: Seq[Expr]) = {
+    tmp.foldLeft(List(): List[Expr])((acc, el) => el match {
+      case Expr.ExtendBlock(sub) => acc ::: sub;
+      case _ => acc :+ el;
+    })
+  }
+
+  def singleStatement[_: P]: P[Expr] = P(expr)
   def line[_: P]: P[Expr] = P(expr ~/ ";")
-  def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | setProp | retFunction | IfOp | whileLoop | forLoop | print | callFunction)
+  def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | setProp | retFunction | IfOp | TernaryOp | whileLoop | forLoop | print | callFunction)
 
   def prefixExpr[_: P]: P[Expr] = P( NoCut(convert) | parens | arrayDef | arrayDefDefault | instanceInterface | getArray | getArraySize | getProp | callFunction | numberFloat | number | ident | constant | str | char)
 
@@ -127,7 +138,12 @@ object Parser {
     }
   }
 
-  def IfOp[_: P]: P[Expr.If] = P("if" ~/ condition ~/ block ~/ elseOp.? ) .map{
+  def TernaryOp[_: P]: P[Expr.If] = P(condition ~/ "?" ~/ singleStatementBlock ~/ elseTernaryOp ).map {
+    case (cond, ex_true, ex_else) => Expr.If(cond, ex_true, ex_else);
+  }
+
+  def IfOp[_: P]: P[Expr.If] = P("if" ~/ condition ~/ (block | singleLineBlock) ~/ elseOp.? ) .map{
+//    case (cond, ex_true, ex_else) => Expr.If(cond, ex_true, ex_else)
     case (cond, ex_true, Some(ex_else)) => Expr.If(cond, ex_true, ex_else);
     case (cond, ex_true, None) => Expr.If(cond, ex_true, Expr.Block(List()));
   }
@@ -150,7 +166,10 @@ object Parser {
     case (first, "&&", second, rest) => Expr.And(List(first, second) ::: rest.toList)
     case (first, "||", second, rest) => Expr.Or(List(first, second) ::: rest.toList)
   }
-  def elseOp[_: P] = P("else" ~/ block)
+
+  def elseOp[_: P] = P("else" ~/ (NoCut(block) | singleStatementBlock))
+
+  def elseTernaryOp[_: P] = P(":" ~/ singleStatementBlock)
 
   def whileLoop[_: P]: P[Expr.While] = P("while" ~/ condition ~ block).map((input)=>Expr.While(input._1, input._2))
   def forLoop[_: P]: P[Expr.Block] = P("for" ~/ "(" ~ line ~ conditionNoParen ~ ";" ~ line ~ ")" ~/ block).map((input)=> {
@@ -171,7 +190,7 @@ object Parser {
   def print[_: P]: P[Expr.Print] = P("print" ~ "(" ~/ ( NoCut(binOp) | prefixExpr ) ~ ")").map(Expr.Print)
 
   class ParseException(s: String = "") extends RuntimeException(s)
-  val reservedKeywords = List("def", "val", "if", "while", "true", "false", "array", "for", "print", "interface")
+  val reservedKeywords = List("def", "val", "if", "?", "while", "true", "false", "array", "for", "print", "interface")
   def checkForReservedKeyword(input: Expr.Ident): Unit ={
     if(reservedKeywords.contains(input.name)) throw new ParseException(s"${input.name} is a reserved keyword");
   }
@@ -180,7 +199,8 @@ object Parser {
     val parsed = fastparse.parse(input, topLevel(_));
     parsed match {
       case Parsed.Success(expr, n) => expr;
-      case t: Parsed.Failure => {println(t.trace().longAggregateMsg); throw new ParseException("parsing fail");}
+      case t: Parsed.Failure => {
+        println(t.trace(true).longAggregateMsg); throw new ParseException("parsing fail");}
       case _ => throw new ParseException("parsing fail")
     }
   }
