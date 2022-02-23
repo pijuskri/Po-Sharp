@@ -128,24 +128,26 @@ def fib(n: int): int {
 * variable definition and assignment
 * print function
 * if/else (&&, ||, ==, >, <, !, !=, >=, <=), forced parenthesis
-* While loops
+* While, for loops
 * Arrays(default values, size access)
 * Types(integers, arrays)
 * Functions
 * Float support
+* Strings
 
 ### To do
 <div id="todo"></div>
 
-* Strings
-* Loops (for)
-* dynamic arrays/array size at runtime
-* library functions
-* Input filename (perhaps make compiled version for release)
+* Structs
+* Enums
 * user input
+* dynamic arrays
+* library functions
+* String manipulation
+* Input filename (perhaps make compiled version for release)
+* Objects
 * typeof
 * Garbage collector
-* Objects/structs
 * multiple files
 * packages
 * File i/o
