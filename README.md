@@ -137,15 +137,16 @@ def fib(n: int): int {
 * Structs
 * Enums
 * Generics
+* Objects
 
 ### To do
 <div id="todo"></div>
 
 #### Major
 
+* Object inheritance
 * lambda functions
 * library functions
-* Objects
 * typeof
 * Garbage collector
 * multiple files

@@ -33,7 +33,9 @@ object ToAssembly {
       declareInterfaces(x);
       declareEnums(x)
       converted += defineFunctions(x.functions);
-      converted += defineFunctions(x.interfaces.flatMap(y=>y.functions));
+      converted += defineFunctions(x.interfaces.flatMap(intf=>
+        intf.functions.map(func=>Expr.Func(intf.name + "_" + func.name, func.argNames, func.retType, func.body)))
+      );
     }}
 
     //converted += convert(input, defaultReg, Map() )._1;
@@ -124,7 +126,7 @@ object ToAssembly {
         case Some(intf) => {
           val array_def = s"mov rdi, ${intf.args.length}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n"
           val newenv = newVar("self", UserType(name), env)
-          val func_code = interpFunction(name, Expr.Ident("self") +: values, reg, newenv)._1
+          val func_code = interpFunction(name+"_"+name, Expr.Ident("self") +: values, reg, newenv)._1
           val ret = array_def + setval("self", UserType(name), newenv)._1 + func_code + "pop rax\n";
           (ret, Type.Interface(intf.args, intf.funcs))
         }
@@ -144,7 +146,11 @@ object ToAssembly {
       case Expr.CallObjFunc(obj, func) => conv(obj) match {
         case(code, Type.Interface(props, funcs)) => funcs.find(x=>x.name == func.name) match {
           case Some(n) => {
-            interpFunction(func.name, func.args, reg, env)
+            var args = func.args
+            //TODO fails if interface has same attributes/functions but different name
+            val intfName = interfaces.find(x=>x.args == props && x.funcs == funcs).get.name
+            if(n.args.nonEmpty && n.args.head.name == "self") args = obj +: args
+            interpFunction(intfName+"_"+func.name, args, reg, env)
           }
           case None => throw new Exception(s"no such function")
         }
@@ -287,8 +293,9 @@ object ToAssembly {
       ))
     )
      */
-    functions = functions ::: interfaces.flatMap(x=>x.funcs)
+    functions = functions ::: interfaces.flatMap(x=>addPrefixToFunctions(x.name,x.funcs))
   }
+  private def addPrefixToFunctions(prefix: String, funcs: List[FunctionInfo]): List[FunctionInfo] = funcs.map(y=>FunctionInfo(prefix+"_"+y.name, y.args, y.retType))
   private def declareEnums(input: Expr.TopLevel): Unit = {
     enums = input.enums.map(x=>EnumInfo(x.name,x.props))
   }
@@ -299,7 +306,6 @@ object ToAssembly {
     }
     case x => x
   }
-  //, func: Type => Type
   //TODO avoid traversing the same interfaces by creating a list of marking which interfaces are concretely defined
   /*
   def traverseTypeTree(input: Type): Type = input match {
