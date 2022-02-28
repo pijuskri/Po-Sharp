@@ -11,7 +11,7 @@ object Parser {
     var enum: List[Expr.DefineEnum] = List()
     x.foreach{
       case y@Expr.Func(a,b,c,d) => func = func :+ y
-      case y@Expr.DefineInterface(a,b) => intf = intf :+ y
+      case y@Expr.DefineInterface(a,b,c) => intf = intf :+ y
       case y@Expr.DefineEnum(a,b) => enum = enum :+ y
     }
     Expr.TopLevel(func, intf, enum)
@@ -25,9 +25,18 @@ object Parser {
       Expr.Func(name.name, args, ret, body)
     }
   }
+  /*
   def interfaceDef[_: P]: P[Expr.DefineInterface] = P("interface " ~ ident ~/ "{" ~ (ident ~ typeDef).rep(sep = ",") ~ "}").map(props=>
     Expr.DefineInterface(props._1.name, props._2.toList.map(x=>InputVar(x._1.name, x._2)))
   )
+   */
+  def interfaceDef[_: P]: P[Expr.DefineInterface] = P("object " ~/ ident ~ "{" ~/ objValue ~ function.rep ~ "}").map(props=>
+    Expr.DefineInterface(props._1.name, props._2.map(x=>InputVar(x.name, x.varType)), props._3.toList)
+  )
+  def objValue[_: P]: P[List[ObjVal]] = P(ident ~ typeDef ~ ("=" ~ prefixExpr).? ~ ";").rep.map(x=> x.map{
+    case (id, valtype, Some(value)) => ObjVal(id.name, valtype, value)
+    case (id, valtype, None) => ObjVal(id.name, valtype, Type.defaultValue(valtype))
+  }.toList)
   def enumDef[_: P]: P[Expr.DefineEnum] = P("enum " ~ ident ~/ "{" ~ ident.rep(sep = ",") ~ "}").map(props=>
     Expr.DefineEnum(props._1.name, props._2.toList.map(x=>x.name))
   )
@@ -38,9 +47,9 @@ object Parser {
     case _ => acc :+ el;
   } )).map(x=>Expr.Block(x))
   def line[_: P]: P[Expr] = P(expr ~/ ";")
-  def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | setProp | retFunction | IfOp | whileLoop | forLoop | print | callFunction)
+  def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | setArray | setVal | NoCut(setProp) | retFunction | IfOp | whileLoop | forLoop | print | callFunction | callObjFunc)
 
-  def prefixExpr[_: P]: P[Expr] = P( NoCut(convert) |  NoCut(parens) | arrayDef | arrayDefDefault | instanceInterface | getArray | getArraySize | getProp | callFunction | numberFloat | number | ident | constant | str | char)
+  def prefixExpr[_: P]: P[Expr] = P( NoCut(convert) |  NoCut(parens) | arrayDef | arrayDefDefault | instanceInterface | getArray | getArraySize | getProp | callFunction | callObjFunc | numberFloat | number | ident | constant | str | char)
 
   def defVal[_: P]: P[Expr.DefVal] = P("val " ~/ ident ~ typeDef.?).map{
     case(ident, Some(varType)) => Expr.DefVal(ident, varType)
@@ -67,7 +76,8 @@ object Parser {
   def getArraySize[_: P]: P[Expr.ArraySize] = P(ident ~~ ".size").map((x) => Expr.ArraySize(x))
 
 
-  def instanceInterface[_: P]: P[Expr.InstantiateInterface] = P("new " ~/ ident ~ "{" ~/ prefixExpr.rep(sep = ",") ~ "}").map(x=>Expr.InstantiateInterface(x._1.name,x._2.toList))
+  def instanceInterface[_: P]: P[Expr.InstantiateInterface] = P("new " ~/ ident ~ "(" ~/ prefixExpr.rep(sep = ",") ~ ")").map(x=>Expr.InstantiateInterface(x._1.name,x._2.toList))
+  //def instanceInterface[_: P]: P[Expr.InstantiateInterface] = P("new " ~/ ident ~ "{" ~/ prefixExpr.rep(sep = ",") ~ "}").map(x=>Expr.InstantiateInterface(x._1.name,x._2.toList))
   /*
   def returnsInterface[_: P] = P(NoCut(callFunction) | getArray | ident | ("(" ~ getProp ~ ")"))
   def getProp[_: P]: P[Expr.GetInterfaceProp] = P(returnsInterface ~ "." ~/ ident).map(x=>Expr.GetInterfaceProp(x._1, x._2.name))
@@ -82,10 +92,22 @@ object Parser {
         )
         Expr.GetProperty(ret, name)
       }
-      else Expr.GetProperty(first, name)
+      else Expr.GetProperty(first, name);
+  }
+  def callObjFunc[_: P]: P[Expr.CallObjFunc] = P(returnsInterface ~ "." ~ recGetProp.rep(0) ~/ callFunction).map{
+    case (first, intermediate, f@Expr.CallF(name, args)) =>
+      if(intermediate.nonEmpty) {
+        val ret = intermediate.tail.foldRight(Expr.GetProperty(first, intermediate.head.name))((v, acc) =>
+          Expr.GetProperty(acc, v.name)
+        )
+        Expr.CallObjFunc(ret, f)
+      }
+      else Expr.CallObjFunc(first, f);
   }
   def recGetProp[_: P] = P(ident ~ ".")
-  def setProp[_: P]: P[Expr.SetInterfaceProp] = P(getProp ~ "=" ~ prefixExpr).map(x=>Expr.SetInterfaceProp(x._1.obj,x._1.prop, x._2))
+  def setProp[_: P]: P[Expr.SetInterfaceProp] = P(getProp ~ "=" ~ prefixExpr).map{
+    case (Expr.GetProperty(obj, prop), toset) => Expr.SetInterfaceProp(obj,prop, toset)
+  }
 
   def typeDef[_: P]: P[Type] = P(":" ~/ (typeBase | typeArray | typeUser))
   def typeArray[_: P]: P[Type] =  P("array" ~/ "[" ~ typeBase ~ "]").map(x=>Type.Array(x))

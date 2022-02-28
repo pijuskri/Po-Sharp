@@ -1,3 +1,26 @@
+object coord {
+    x: int;
+    y: int;
+    def coord(self: coord, x: int, y: int) {
+        self.x = (x + 10);
+        self.y = y;
+    }
+    def add(self: coord, a: int) {
+        self.x = (self.x + a);
+    }
+}
+def main(): int {
+    val a = new coord(50,1);
+    print(a.x);
+    a.add(a, 10);
+    print(a.x);
+    return 0;
+}
+
+
+
+
+/*
 def main(): int {
     val a = array(1,2,3);
     val b = array(4,5,6);
@@ -24,6 +47,7 @@ def print_arr(a: array[int]) {
     };
     return;
 }
+*/
 
 
 /*

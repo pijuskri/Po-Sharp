@@ -136,6 +136,7 @@ def fib(n: int): int {
 * Strings
 * Structs
 * Enums
+* Generics
 
 ### To do
 <div id="todo"></div>

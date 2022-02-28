@@ -1,5 +1,7 @@
 package scala
 
+import scala.ToAssembly.FunctionInfo
+
 sealed trait Expr
 object Expr{
   case class Str(s: String) extends Expr
@@ -42,11 +44,18 @@ object Expr{
   case class CallF(name: String, args: List[Expr]) extends Expr
   case class Return(value: Option[Expr]) extends Expr
 
+  case class DefineInterface(name: String, props: List[InputVar], functions: List[Func]) extends Expr
+  case class InstantiateInterface(intf: String, args: List[Expr]) extends Expr
+  case class GetProperty(obj: Expr, prop: String) extends Expr
+  case class CallObjFunc(obj: Expr, func: CallF) extends Expr
+  case class SetInterfaceProp(intf: Expr, prop: String, value: Expr) extends Expr
+
+  /*
   case class DefineInterface(name: String, props: List[InputVar]) extends Expr
   case class InstantiateInterface(intf: String, defaultValues: List[Expr]) extends Expr
-  //case class GetInterfaceProp(intf: Expr, prop: String) extends Expr
   case class GetProperty(obj: Expr, prop: String) extends Expr
   case class SetInterfaceProp(intf: Expr, prop: String, value: Expr) extends Expr
+   */
 
   case class DefineEnum(name: String, props: List[String])
 
@@ -54,6 +63,7 @@ object Expr{
 
   case class TopLevel(functions: List[Func], interfaces: List[DefineInterface], enums: List[DefineEnum]) extends Expr
   case class Nothing() extends Expr
+  case class RawReference() extends Expr
 }
 
 sealed trait Type
@@ -63,7 +73,8 @@ object Type {
   case class NumFloat() extends Type
   case class Character() extends Type
   case class Array(elemType: Type) extends Type
-  case class Interface(properties: List[InputVar]) extends Type
+  //case class Interface(properties: List[InputVar]) extends Type
+  case class Interface(properties: List[InputVar], functions: List[FunctionInfo]) extends Type
   case class T1() extends Type
   case class Enum(el: List[String]) extends Type
 
@@ -75,7 +86,9 @@ object Type {
     case NumFloat() => "f";
     case Character() => "c"
     case Array(inner) => "arr_"+shortS(inner)+"_"
-    case Interface(inner) => "itf_"+inner.map(x=>shortS(x.varType))+"_"
+    //case Interface(inner) => "itf_"+inner.map(x=>shortS(x.varType))+"_"
+    case Interface(inner, innerf) => "itf_"+inner.map(x=>shortS(x.varType))+"_"+innerf.map(x=>x.name)+"_"
+    case UserType(name) => name
     case T1() => "T1"
   }
   def compare(val1: Type, val2: Type): Boolean = (val1, val2) match {
@@ -88,5 +101,13 @@ object Type {
   }
   def compare(value: (Type, Type)): Boolean = compare(value._1,value._2)
   def compare(val1: List[Type], val2: List[Type]): Boolean = (val1 zip val2).forall(x=>compare(x))
+  def defaultValue(valType: Type): Expr = valType match {
+    case Num() => Expr.Num(0);
+    case NumFloat() => Expr.NumFloat(0);
+    case Character() => Expr.Character('\u0000');
+    case _ => Expr.Nothing();
+  }
 }
 case class InputVar(name: String, varType: Type)
+case class ObjVal(name: String, varType: Type, defaultValue: Expr)
+//case class ObjFunc(name: String, args: List[InputVar], ret: Type)
