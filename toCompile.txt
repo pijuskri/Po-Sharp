@@ -1,3 +1,53 @@
+object Dynamic {
+    size: int;
+    allocated: int;
+    arr: array[int];
+    def Dynamic(self: Dynamic) {
+        self.arr = array[int][2];
+        self.allocated = 2;
+        self.size = 0;
+    }
+    def push(self: Dynamic, value: int) {
+        //self.arr[self.size] = value;
+        val a = self.arr;
+        a[self.size] = value;
+        //self.size += 1;
+        self.size = (self.size + 1);
+        if(self.allocated == self.size) {
+            val newsize = (self.allocated * 2);
+            self.arr = array[int][newsize];
+            val newarr = self.arr;
+            for(val i = 0; i < self.size; i+= 1;) {
+                //self.arr[i] = a[i];
+                newarr[i] = a[i];
+            };
+            self.allocated = newsize;
+        };
+    }
+    def get(self: Dynamic, index: int): int {
+        val a = self.arr;
+        if(index >= self.size) {
+            print("can not do that");
+        };
+        return self.arr[index];
+    }
+    def print_arr(self: Dynamic) {
+        for(val i = 0; i < self.size; i+= 1;) {
+            print(self.arr[i]);
+        };
+    }
+}
+def main(): int {
+    val a = new Dynamic();
+    a.push(1);
+    a.push(2);
+    a.push(3);
+    a.print_arr();
+    return 0;
+}
+
+
+/*
 object coord {
     x: int;
     y: int;
@@ -16,7 +66,7 @@ def main(): int {
     print(a.x);
     return 0;
 }
-
+*/
 
 
 

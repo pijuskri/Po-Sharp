@@ -144,6 +144,7 @@ def fib(n: int): int {
 
 #### Major
 
+* runtime exceptions
 * Object inheritance
 * lambda functions
 * library functions
@@ -156,7 +157,6 @@ def fib(n: int): int {
 
 #### Minor
 
-* dynamic arrays
 * ref/out
 * Type alias
 * Interface union

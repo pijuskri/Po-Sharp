@@ -33,11 +33,11 @@ object Expr{
   case class ExtendBlock(lines: List[Expr]) extends Expr
   case class While(condition: Expr, execute: Expr.Block) extends Expr
 
-  case class GetArray(array: Ident, index: Expr) extends Expr
-  case class SetArray(array: Ident, index: Expr, value: Expr) extends Expr
+  case class GetArray(array: Expr, index: Expr) extends Expr
+  case class SetArray(array: Expr, index: Expr, value: Expr) extends Expr
   case class DefineArray(size: Expr, elemType:Type, defaultValues: List[Expr]) extends Expr
   case class ConcatArray(left: Expr, right: Expr) extends Expr
-  case class ArraySize(array: Ident) extends Expr
+  case class ArraySize(array: Expr) extends Expr
 
   //case class StackVar(offset: Int) extends Expr
   case class Func(name: String, argNames: List[InputVar], retType: Type, body: Expr.Block) extends Expr

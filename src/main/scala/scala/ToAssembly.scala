@@ -240,7 +240,7 @@ object ToAssembly {
       lineNr+=1;
       defstring += convertBlock(extendLines.tail, defaultReg, newenv)._1
     }
-    defstring += freeMemory((newenv.toSet diff env.toSet).toMap)
+    //defstring += freeMemory((newenv.toSet diff env.toSet).toMap)
     (defstring, Type.Undefined());
   }
   private def convertCondition(input: Expr, reg: List[String], env: Env, orMode: Boolean, trueLabel: String, falseLabel: String): String = {
@@ -411,20 +411,20 @@ object ToAssembly {
       ("push rax\n" + indexCode + s"mov rdi, ${varLoc}\n" + "pop rsi\n" + s"mov [rdi+8+rax*8], rsi\n", newenv)
     }
   }
-  def getArray(name: Expr.Ident, index: Expr, reg: List[String], env: Env): (String, Type) = (convert(name, reg, env), convert(index, reg, env)) match {
+  def getArray(arr: Expr, index: Expr, reg: List[String], env: Env): (String, Type) = (convert(arr, reg, env), convert(index, reg, env)) match {
     case ((code, Type.Array( arrType)), (indexCode, indexType)) => {
       if(indexType != Type.Num()) throw new Exception(s"wrong index for array, got $indexType")
       val size = arraySizeFromType(arrType);
       (code + s"push ${reg.head}\n" + indexCode + s"mov ${reg.tail.head}, ${reg.head}\n" +
         s"pop ${reg.head}\n" + s"mov ${sizeToReg(size, reg.head)}, [${reg.head}+8+${reg.tail.head}*$size]\n", arrType)
     }
-    case ((code, varType), l) => throw new Exception(s"trying to access variable ${name.name} as an array, has type $varType")
+    case ((code, varType), l) => throw new Exception(s"trying to access variable ${arr} as an array, has type $varType")
   }
-  def getArraySize(name: Expr.Ident, reg: List[String], env: Env): (String, Type) = convert(name, reg, env) match {
+  def getArraySize(arr: Expr, reg: List[String], env: Env): (String, Type) = convert(arr, reg, env) match {
     case (code, Type.Array(arrType)) => {
       (code + getArrayDirect(reg.head, 0, 8, reg), Type.Num())
     }
-    case (code, varType) => throw new Exception(s"trying to access variable ${name.name} as an array, has type $varType")
+    case (code, varType) => throw new Exception(s"trying to access variable ${arr} as an array, has type $varType")
   }
   //TODO not safe when default values use rdi
   def setArrayDirect(code: String, index: Int, size: Int): String = {
