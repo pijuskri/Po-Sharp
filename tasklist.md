@@ -1,6 +1,7 @@
 ##To do
 * ~~change functions names to consider their object~~
 * ~~make self auto-pass~~
+* booleans
 * infer self in object functions
 * static variables
 * add prinf

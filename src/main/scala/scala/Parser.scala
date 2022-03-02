@@ -3,6 +3,8 @@ package scala
 import fastparse.JavaWhitespace._
 import fastparse._
 
+import scala.Expr.GetProperty
+
 object Parser {
   //TODO fix issue when spacing at start of file
   def topLevel[_: P]: P[Expr.TopLevel] = P(StringIn(" ").? ~(function | interfaceDef | enumDef).rep(1)).map(x=>{
@@ -47,15 +49,48 @@ object Parser {
     case _ => acc :+ el;
   } )).map(x=>Expr.Block(x))
   def line[_: P]: P[Expr] = P(expr ~/ ";")
-  def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | NoCut(setArray) | setVal | NoCut(setProp) | retFunction | IfOp | whileLoop | forLoop | print | callFunction | callObjFunc)
 
-  def prefixExpr[_: P]: P[Expr] = P( NoCut(convert) |  NoCut(parens) | arrayDef | arrayDefDefault | instanceInterface | NoCut(getArray) | NoCut(getArraySize) | NoCut(callObjFunc) | getProp | callFunction | numberFloat | number | ident | constant | str | char)
+  def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | NoCut(setVar) | callFuncInLine | retFunction | IfOp | whileLoop | forLoop | print | callFunction)
+
+  def prefixExpr[_: P]: P[Expr] = P( NoCut(convert) |  NoCut(parens) | arrayDef | arrayDefDefault | instanceInterface | accessVar | NoCut(getArraySize) | callFunction | numberFloat | number | ident | constant | str | char)
 
   def defVal[_: P]: P[Expr.DefVal] = P("val " ~/ ident ~ typeDef.?).map{
     case(ident, Some(varType)) => Expr.DefVal(ident, varType)
     case(ident, None) => Expr.DefVal(ident, Type.Undefined())
   }
-  //def setVal[_: P]: P[Expr.SetVal] = P(ident ~ "=" ~/ prefixExpr).map(x => Expr.SetVal(x._1, x._2))
+  def accessVar[_: P]: P[Expr] = P(ident ~ ( (".".! ~ ident ~ "(".! ~ prefixExpr.rep(sep = ",") ~ ")") | (".".! ~ ident) | ("[".! ~/ prefixExpr ~ "]") ).rep).map{ case (start, acs) =>
+    acs.foldLeft(start: Expr)((acc, v) => v match{
+      case (".", Expr.Ident(ident)) => GetProperty(acc, ident)
+      case ("[", index: Expr) => Expr.GetArray(acc, index)
+      case (".", Expr.Ident(ident), "(", args: List[Expr]) => Expr.CallObjFunc(acc, Expr.CallF(ident, args))
+      case x => throw new ParseException(s"bad var access: $x");
+    })
+  }
+  def callFuncInLine[_: P]: P[Expr] = P(accessVar).filter{
+    case _: Expr.CallObjFunc => true
+    case x => false
+  }
+
+  def setVar[_: P]: P[Expr] = P(accessVar ~ StringIn("+=", "-=", "*=", "/=", "=").! ~ prefixExpr ~ &(";")).map{
+     case (variable, op, value) =>
+     {
+       val opType = op match {
+         case "=" => value
+         case "+=" => Expr.Plus(variable, value)
+         case "-=" => Expr.Minus(variable, value)
+         case "*=" => Expr.Mult(variable, value)
+         case "/=" => Expr.Div(variable, value)
+       }
+       (variable, opType) match {
+        case (id: Expr.Ident, value) => Expr.SetVal(id, value)
+        case (Expr.GetProperty(expr, ident), value) => Expr.SetInterfaceProp(expr, ident, value)
+        case (Expr.GetArray(arr, index), value) => Expr.SetArray(arr, index, value)
+        case x => throw new ParseException(s"bad var set: $x");
+        }
+
+     }
+  }
+  /*
   def setVal[_: P]: P[Expr.SetVal] = P(ident ~ StringIn("+=", "-=", "*=", "/=", "=").! ~/ prefixExpr).map(x => {
     val ret = x._2 match {
       case "=" => x._3
@@ -66,15 +101,19 @@ object Parser {
     }
     Expr.SetVal(x._1, ret)
   })
+
+   */
   def defAndSetVal[_: P] = P( defVal ~ "=" ~ prefixExpr).map(x => Expr.ExtendBlock(List(x._1, Expr.SetVal(x._1.variable, x._2))))
 
   def arrayDef[_: P]: P[Expr.DefineArray] = P("array" ~ "[" ~/ typeBase ~ "]" ~ "[" ~/ prefixExpr ~ "]").map(x=> Expr.DefineArray(x._2, x._1, List()))
   def arrayDefDefault[_: P]: P[Expr.DefineArray] = P("array" ~ "(" ~/ prefixExpr.rep(sep = ",") ~ ")").map(x=> Expr.DefineArray(Expr.Num(x.size), Type.Undefined(), x.toList))
 
-  //TODO fix issue with infinite loop
-  def returnsArray[_: P]: P[Expr] = P(NoCut(callFunction) | getProp | ident)
+  /*
+
   def getArray[_: P]: P[Expr.GetArray] = P(returnsArray ~ "[" ~/ prefixExpr ~ "]").map((x) => Expr.GetArray(x._1, x._2))
   def setArray[_: P]: P[Expr.SetArray] = P(returnsArray ~ "[" ~/ prefixExpr ~ "]" ~/ "=" ~ prefixExpr).map((x) => Expr.SetArray(x._1, x._2, x._3))
+   */
+  def returnsArray[_: P]: P[Expr] = P(ident)
   def getArraySize[_: P]: P[Expr.ArraySize] = P(returnsArray ~~ ".size").map((x) => Expr.ArraySize(x))
 
 
@@ -86,6 +125,7 @@ object Parser {
   def setProp[_: P]: P[Expr.SetInterfaceProp] = P(returnsInterface ~ "." ~/ ident ~ "=" ~ prefixExpr).map(x=>Expr.SetInterfaceProp(x._1,x._2.name, x._3))
    */
   //def returnsInterface[_: P] = P(NoCut(callFunction) | getArray | ident)
+  /*
   def returnsInterface[_: P] = P(NoCut(callFunction) | ident)
   def getProp[_: P]: P[Expr.GetProperty] = P(returnsInterface ~ "." ~ recGetProp.rep(0) ~/ ident).map{
     case (first, intermediate, Expr.Ident(name)) =>
@@ -111,6 +151,8 @@ object Parser {
   def setProp[_: P]: P[Expr.SetInterfaceProp] = P(getProp ~ "=" ~ prefixExpr).map{
     case (Expr.GetProperty(obj, prop), toset) => Expr.SetInterfaceProp(obj,prop, toset)
   }
+
+   */
 
   def typeDef[_: P]: P[Type] = P(":" ~/ (typeBase | typeArray | typeUser))
   def typeArray[_: P]: P[Type] =  P("array" ~/ "[" ~ typeBase ~ "]").map(x=>Type.Array(x))
@@ -196,7 +238,7 @@ object Parser {
   def str[_: P]: P[Expr] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(x=>Expr.Str(x+"\u0000"))
   def ident[_: P]: P[Expr.Ident] = P(CharIn("a-zA-Z_") ~~ CharsWhileIn("a-zA-Z0-9_", 0)).!.map((input) => {
     Expr.Ident(input)
-  }).filter((x) => !reservedKeywords.contains(x) )
+  }).filter(x => !reservedKeywords.contains(x.name))
   def number[_: P]: P[Expr.Num] = P( "-".!.? ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.Num(Integer.parseInt(x)))
   def numberFloat[_: P]: P[Expr.NumFloat] = P( "-".? ~~ CharsWhileIn("0-9", 1) ~~ "." ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.NumFloat(x.toFloat))
   def char[_: P]: P[Expr.Character] = P("'" ~/ AnyChar.! ~/ "'").map(x=>Expr.Character(x.charAt(0)));
@@ -207,16 +249,16 @@ object Parser {
   def print[_: P]: P[Expr.Print] = P("print" ~ "(" ~/ ( NoCut(binOp) | prefixExpr ) ~ ")").map(Expr.Print)
 
   class ParseException(s: String) extends RuntimeException(s)
-  val reservedKeywords = List("def", "val", "if", "while", "true", "false", "array", "for", "print", "interface")
+  val reservedKeywords = List("def", "val", "if", "while", "true", "false", "array", "for", "print", "interface", "return", "object")
   def checkForReservedKeyword(input: Expr.Ident): Unit ={
     if(reservedKeywords.contains(input.name)) throw new ParseException(s"${input.name} is a reserved keyword");
   }
 
   def parseInput(input: String): Expr = {
-    val parsed = fastparse.parse(input, topLevel(_));
+    val parsed = fastparse.parse(input, topLevel(_), verboseFailures = true);
     parsed match {
       case Parsed.Success(expr, n) => expr;
-      case t: Parsed.Failure => {println(t.trace().longAggregateMsg); throw new ParseException("parsing fail");}
+      case t: Parsed.Failure => {println(t.trace(true).longAggregateMsg); throw new ParseException("parsing fail");}
       case _ => throw new ParseException("parsing fail")
     }
   }

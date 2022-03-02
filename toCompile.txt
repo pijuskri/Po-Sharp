@@ -1,3 +1,19 @@
+/*
+object Wrap {
+    arr: array[int];
+    def Wrap(self: Wrap) {
+        self.arr = array[int][10];
+    }
+}
+def main(): int {
+    val o = new Wrap();
+    val arr = o.arr;
+    o.arr[0] = 5;
+    print(o.arr[0]);
+    return 0;
+}
+*/
+
 object Dynamic {
     size: int;
     allocated: int;
@@ -8,24 +24,19 @@ object Dynamic {
         self.size = 0;
     }
     def push(self: Dynamic, value: int) {
-        //self.arr[self.size] = value;
-        val a = self.arr;
-        a[self.size] = value;
-        //self.size += 1;
-        self.size = (self.size + 1);
+        self.arr[self.size] = value;
+        self.size += 1;
         if(self.allocated == self.size) {
             val newsize = (self.allocated * 2);
+            val old = self.arr;
             self.arr = array[int][newsize];
-            val newarr = self.arr;
             for(val i = 0; i < self.size; i+= 1;) {
-                //self.arr[i] = a[i];
-                newarr[i] = a[i];
+                self.arr[i] = old[i];
             };
             self.allocated = newsize;
         };
     }
     def get(self: Dynamic, index: int): int {
-        val a = self.arr;
         if(index >= self.size) {
             print("can not do that");
         };
@@ -36,6 +47,7 @@ object Dynamic {
             print(self.arr[i]);
         };
     }
+    def compare(self: Dynamic, other: Dynamic)
 }
 def main(): int {
     val a = new Dynamic();
@@ -45,6 +57,7 @@ def main(): int {
     a.print_arr();
     return 0;
 }
+
 
 
 /*

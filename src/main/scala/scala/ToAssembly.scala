@@ -179,11 +179,10 @@ object ToAssembly {
         newenv = modified._2
         converted._1 + modified._1
       };
-      case Expr.SetArray(Expr.Ident(name), index, value) => {
+      case Expr.SetArray(expr, index, value) => {
         val converted = convert(value, reg, env);
-        val arr = setArray(name, index, converted._2, env)
-        newenv = arr._2;
-        converted._1 + arr._1
+        val arr = setArray(expr, index, converted._2, env)
+        converted._1 + arr
       };
       case Expr.SetInterfaceProp(intf, prop, valueRaw) => convert(intf, reg.tail, env) match {
         case(code, Type.Interface(props,f)) => props.find(x=>x.name == prop) match {
@@ -400,6 +399,7 @@ object ToAssembly {
     (s"mov qword ${look._1}, rax\n", newenv)
   }
   //TODO add runtime index checking
+  /*
   def setArray(name: String, index: Expr, raxType: Type, env: Env): (String, Env) = (lookup(name, env), convert(index, defaultReg, env)) match {
     case ((varLoc, Variable(loc, Type.Array(elemType))), (indexCode, indexType)) => {
       var newenv = env;
@@ -409,6 +409,15 @@ object ToAssembly {
       }
       if(indexType != Type.Num()) throw new Exception(s"wrong index for array, got $indexType")
       ("push rax\n" + indexCode + s"mov rdi, ${varLoc}\n" + "pop rsi\n" + s"mov [rdi+8+rax*8], rsi\n", newenv)
+    }
+  }
+
+   */
+  def setArray(arr: Expr, index: Expr, raxType: Type, env: Env): String = (convert(arr, defaultReg, env), convert(index, defaultReg, env)) match {
+    case ((arrCode, Type.Array(elemType)), (indexCode, indexType)) => {
+      if(elemType != raxType) throw new Exception(s"trying to set array element of type ${elemType} to $raxType")
+      if(indexType != Type.Num()) throw new Exception(s"wrong index for array, got $indexType")
+      "push rax\n" + arrCode + "push rax\n" + indexCode + "pop rdi\n" + "pop rsi\n" + s"mov [rdi+8+rax*8], rsi\n"
     }
   }
   def getArray(arr: Expr, index: Expr, reg: List[String], env: Env): (String, Type) = (convert(arr, reg, env), convert(index, reg, env)) match {

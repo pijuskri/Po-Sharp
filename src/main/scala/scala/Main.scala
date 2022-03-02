@@ -11,10 +11,10 @@ object Main extends App {
   }
   val toCompile = readFile("", inputFile)
   val parsed = Parser.parseInput(toCompile);
-  //println(parsed);
+  //println(Util.prettyPrint(parsed));
   println("")
   val asm = ToAssembly.convertMain(parsed);
-  println(asm);
+  //println(asm);
 
   writeToFile(asm, "compiled/", "hello.asm")
 
