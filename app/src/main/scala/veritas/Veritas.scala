@@ -10,6 +10,7 @@ import java.util.concurrent.{Executors, TimeUnit}
 import scala.Main.writeToFile
 import scala.io.AnsiColor._
 import scala.reflect.internal.util.ScalaClassLoader
+import Parser._
 import scala.sys.process.Process
 
 /**
@@ -138,7 +139,7 @@ object Veritas {
           }
         } catch {
           case e: Exception =>
-            chunkedOut.append(s"${el.getName}: $RED[ERROR]$RESET Could not instantiate $c.$lastMethodName with: $e")
+            chunkedOut.append(s"${el.getName}: $RED[ERROR]$RESET Could not instantiate $c.$lastMethodName with: $e\n")
         } finally {
           // Add to actual string builder
           this.synchronized(out.append(chunkedOut.toString))
@@ -173,6 +174,8 @@ object Veritas {
       .filter(_.isFile)
       .filter(_.getName.contains("test"))
       .foreach(el => el.delete())
+
+    System.exit(exitCode)
   }
 
   def GetOutput(input: String, fileName: String): String = {

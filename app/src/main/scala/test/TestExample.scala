@@ -68,7 +68,7 @@ package test {
 
     def runTest7(): (Boolean, String) = {
       new PoSharpScript("{def a; a = 5; print(a);}")
-        .ShouldThrow(new ParseException)
+        .ShouldThrow(new ParseException(""))
     }
   }
 }
