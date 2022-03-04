@@ -109,6 +109,8 @@ object Veritas {
       .forPackage("test")
       .setScanners(TypesAnnotated))
 
+    println("Did reflection call")
+
     // Get all annotated types from package test
     val res = reflections
       .getStore
@@ -117,6 +119,8 @@ object Veritas {
       .toArray
       .filter(el => el.asInstanceOf[String].contains("test."))
       .map(el => el.asInstanceOf[String])
+
+    println("Got annotated types")
 
     // Get the class and instantiate it
     res.foreach(c => {
@@ -130,6 +134,7 @@ object Veritas {
         // Catches invalid tests (say main is missing from the code snippet)
         try {
           lastMethodName = el.getName
+          println(s"About to invoke method $lastMethodName")
           val (output, actual) = el.invoke(instance).asInstanceOf[(Boolean, String)]
           if (output) {
             chunkedOut.append(s"${el.getName}: $GREEN[PASSED]$RESET\n")
@@ -147,6 +152,7 @@ object Veritas {
       }
 
       try {
+        println("Created class loder")
         val instance = ScalaClassLoader(getClass.getClassLoader).create(c)
 
         // Run all tests in the class
@@ -154,6 +160,7 @@ object Veritas {
           m.getName.toLowerCase().contains("test")) // Filter out non-test methods
           .grouped(chunkSize) // Group in chunks
           .foreach(chunk => {
+            println("Executing chunk")
             pool.execute(() => {
               chunk.foreach(runTest(instance, _))
             })
@@ -179,10 +186,15 @@ object Veritas {
   }
 
   def GetOutput(input: String, fileName: String): String = {
+    println("In GetOutput")
     val parsed = Parser.parseInput(input)
+    println("Parsed Input")
     val asm = ToAssembly.convertMain(parsed)
+    println("Converted to ASM")
     writeToFile(asm, "compiled/", s"$fileName.asm")
+    println("Written to file")
     val tmp = Process(s"wsl make TARGET_FILE=$fileName").!!
+    println("Called process")
 
     tmp.split("\n").last.trim
   }
