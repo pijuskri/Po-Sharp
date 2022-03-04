@@ -62,6 +62,7 @@ object Expr{
   case class Convert(value: Expr, to: Type) extends Expr
 
   case class TopLevel(functions: List[Func], interfaces: List[DefineInterface], enums: List[DefineEnum]) extends Expr
+  case class ThrowException() extends Expr
   case class Nothing() extends Expr
   case class RawReference() extends Expr
 }
@@ -73,6 +74,7 @@ object Type {
   case class NumFloat() extends Type
   case class Character() extends Type
   case class Array(elemType: Type) extends Type
+  case class Bool() extends Type
   //case class Interface(properties: List[InputVar]) extends Type
   case class Interface(properties: List[InputVar], functions: List[FunctionInfo]) extends Type
   case class T1() extends Type
@@ -85,6 +87,7 @@ object Type {
     case Num() => "i";
     case NumFloat() => "f";
     case Character() => "c"
+    case Bool() => "b"
     case Array(inner) => "arr_"+shortS(inner)+"_"
     //case Interface(inner) => "itf_"+inner.map(x=>shortS(x.varType))+"_"
     case Interface(inner, innerf) => "itf_"+inner.map(x=>shortS(x.varType))+"_"+innerf.map(x=>x.name)+"_"

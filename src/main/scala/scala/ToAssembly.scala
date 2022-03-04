@@ -26,6 +26,7 @@ object ToAssembly {
         | extern printf
         | extern calloc
         | extern free
+        | extern exit
         | section .text
         |""".stripMargin;
     input match { case x: Expr.TopLevel => {
@@ -43,12 +44,14 @@ object ToAssembly {
     converted += "format_float:\n        db  \"%f\", 10, 0\n"
     converted += "format_string:\n        db  \"%s\", 10, 0\n"
     converted += "format_char:\n        db  \"%c\", 10, 0\n"
+    converted += "format_true:\n        db  \"true\", 10, 0\n"
+    converted += "format_false:\n        db  \"false\", 10, 0\n"
+    converted += "section .data\nmain_rbp	DQ	0\nmain_rsp	DQ	0\n"
     converted += stringLiterals.mkString
     //converted = converted.split("\n").zipWithIndex.foldLeft("")((acc, v)=> acc +s"\nline${v._2}:\n"+ v._1)
     converted = converted.split("\n").map(x=>if(x.contains(":")) x+"\n" else "   "+x+"\n").mkString
     converted
   }
-  var lineNr = 0;
   var ifCounter = 0;
   var subconditionCounter: Int = 0;
   var stringLiterals: List[String] = List()
@@ -59,28 +62,18 @@ object ToAssembly {
 
   private def convert(input: Expr, reg: List[String], env: Env): (String, Type) = {
     val conv = (_input: Expr) => convert(_input, reg, env)
+    val convt = (_input: Expr, _type: Type) => convert(_input, reg, env) match {
+      case (_code, received_type) if received_type == _type => _code
+      case (_code, received_type) => throw new Exception(s"got type $received_type, expected ${_type}")
+    }
     val ret = input match {
       case Expr.Num(value) => (s"mov ${reg.head}, 0${value}d\n", Type.Num())
       case Expr.NumFloat(value) => {
         (s"mov ${reg.head}, __float64__(${value.toString})\n", Type.NumFloat())
       }
+      case Expr.True() => (s"mov ${reg.head}, 1\n", Type.Bool())
+      case Expr.False() => (s"mov ${reg.head}, 0\n", Type.Bool())
       case Expr.Plus(left, right) => aritTemplate(left, right, "add", "addsd", reg, env)
-      /*
-      case Expr.ConcatArray(left, right) => (convert(left, reg, env), convert(right, reg.tail, env)) match {
-        case ((codeLeft, Type.Array(sizeLeft, elemTypeLeft)), (codeRight, Type.Array(sizeRight, elemTypeRight))) => {
-          if(elemTypeLeft != elemTypeRight) throw new Exception(s"can't add arrays of different types");
-          val size = sizeLeft+ sizeRight;
-          var ret = codeLeft + "push rax\n" + codeRight + "push rax\n";
-          val leftArr = "[rsp-8]"; val rightArr = "[rsp-16]"
-          //TODO add runtime garbage collection
-          //s"mov rdi, [rbp-${entry._2.pointer}]\n" + "call free\n";
-          ret += s"mov rdi, ${size}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n";
-          ret += Expr.While()
-          ret += "pop rax\n"
-          (ret, Type.Array(size, elemTypeLeft))
-        }
-      }
-       */
       case Expr.Minus(left, right) => aritTemplate(left, right, "sub", "subsd", reg, env)
       case Expr.Mult(left, right) => aritTemplate(left, right, "mul", "mulsd", reg, env)
       case Expr.Div(left, right) => aritTemplate(left, right, "div", "divsd", reg, env)
@@ -162,7 +155,41 @@ object ToAssembly {
       case Expr.Str(value) => (defineArrayKnown(value.length, Type.Character(), value.map(x=>Expr.Character(x)).toList, env)._1, Type.Array(Type.Character()))
       case Expr.Character(value) => (s"mov ${reg.head}, ${value.toInt}\n", Type.Character())
       case Expr.Nothing() => ("", Type.Undefined());
-      case _ => throw new Exception ("not interpreted yet :(");
+      case Expr.Equals(left, right) => {
+        val ret = compareExpr(left, right, false, reg, env) + s"sete ${sizeToReg(1, reg.head)}\n"
+        (ret, Type.Bool())
+      }
+      case Expr.LessThan(left, right) => {
+        val ret = compareExpr(left, right, true, reg, env) + s"setl ${sizeToReg(1, reg.head)}\n"
+        (ret, Type.Bool())
+      }
+      case Expr.MoreThan(left, right) => {
+        val ret = compareExpr(left, right, true, reg, env) + s"setg ${sizeToReg(1, reg.head)}\n"
+        (ret, Type.Bool())
+      }
+      case Expr.Not(left) => {
+        val ret = convt(left, Type.Bool()) + s"xor ${reg.head}, 1\n"
+        (ret, Type.Bool())
+      }
+      case Expr.And(l) => {
+        val reg1 = sizeToReg(1, reg.head)
+        val reg2 = sizeToReg(1, reg.tail.head)
+        val ret = l.foldLeft(s"mov $reg1, 1\n")((acc, v) => convert(v, reg.tail, env) match {
+          case (code, Type.Bool()) => acc + code + s"and ${reg1}, ${reg2}\n" //cmp ${reg1}, 1\nsete $reg1\n
+          case (_, t) => throw new Exception(s"expected bool in and, got $t")
+        })
+        (ret, Type.Bool())
+      }
+      case Expr.Or(l) => {
+        val reg1 = sizeToReg(1, reg.head)
+        val reg2 = sizeToReg(1, reg.tail.head)
+        val ret = l.foldLeft(s"mov $reg1, 0\n")((acc, v) => convert(v, reg.tail, env) match {
+          case (code, Type.Bool()) => acc + code + s"or ${reg1}, ${reg2}\n"
+          case (_, t) => throw new Exception(s"expected bool in and, got $t")
+        })
+        (ret, Type.Bool())
+      }
+      case x => throw new Exception (s"$x is not interpreted yet :(");
     }
     (ret._1, makeUserTypesConcrete(ret._2))
   }
@@ -198,19 +225,30 @@ object ToAssembly {
       case Expr.DefVal(Expr.Ident(name), varType) => newenv = newVar(name, varType, newenv); ""
       case Expr.Print(toPrint) => printInterp(toPrint, env);
       case Expr.If(condition, ifTrue, ifFalse) => {
+        def compare(left: Expr, right: Expr, numeric: Boolean): String = compareExpr(left, right, numeric, reg, env)
         val trueLabel = s"if_${ifCounter}_true"
         val falseLabel = s"if_${ifCounter}_false"
         val endLabel = s"if_${ifCounter}_end"
         ifCounter += 1;
-        val ret = convertCondition(condition, reg, env, orMode = false, trueLabel, falseLabel) + s"${trueLabel}:\n" + convert(ifTrue, reg, env)._1 +
+        val cond = convert(condition, reg, env) match {
+          case (code, Type.Bool()) => compare(condition, Expr.True(), false) + s"jne ${falseLabel}\n"
+          case (_, t) => throw new Exception(s"got type $t inside condition, expected bool")
+        }
+        //convertCondition(condition, reg, env, orMode = false, trueLabel, falseLabel)
+        val ret = cond + s"${trueLabel}:\n" + convert(ifTrue, reg, env)._1 +
           s"jmp ${endLabel}\n" + s"${falseLabel}:\n" + convert(ifFalse, reg, env)._1 + s"${endLabel}:\n"
         ret
       }
       case Expr.While(condition, execute) => {
+        def compare(left: Expr, right: Expr, numeric: Boolean): String = compareExpr(left, right, numeric, reg, env)
         val startLabel = s"while_${ifCounter}_start"
         val trueLabel = s"while_${ifCounter}_true"
         val endLabel = s"while_${ifCounter}_end"
-        val ret = s"${startLabel}:\n" + convertCondition(condition, reg, env, orMode = false, trueLabel, endLabel) + s"${trueLabel}:\n" + convert(execute, reg, env)._1 +
+        val cond = convert(condition, reg, env) match {
+          case (code, Type.Bool()) => compare(condition, Expr.True(), false) + s"jne ${endLabel}\n"
+          case (_, t) => throw new Exception(s"got type $t inside condition, expected bool")
+        }
+        val ret = s"${startLabel}:\n" + cond + s"${trueLabel}:\n" + convert(execute, reg, env)._1 +
           s"jmp ${startLabel}\n" + s"${endLabel}:\n"
         ifCounter += 1;
         ret
@@ -222,13 +260,15 @@ object ToAssembly {
         in match {
           case Some(value) => {
             val converted = convert(value, defaultReg, env)
-            if (makeUserTypesConcrete(functionScope.retType) != converted._2) throw new Exception(s"Wrong return argument: function ${functionScope.name} expects ${functionScope.retType}, got ${converted._2}")
+            if (makeUserTypesConcrete(functionScope.retType) != converted._2)
+              throw new Exception(s"Wrong return argument: function ${functionScope.name} expects ${functionScope.retType}, got ${converted._2}")
             converted._1 + free + "leave\nret\n"
           }
           case None => free + "leave\nret\n";
         }
 
       }
+      case Expr.ThrowException() => "jmp exception\n"
       case x@Expr.CallF(n, a) => convert(x, reg, env)._1;
       case x@Expr.Block(n) => convert(x, reg, env)._1;
       case x@Expr.CallObjFunc(obj, func) => convert(x, reg, env)._1;
@@ -236,27 +276,29 @@ object ToAssembly {
       case _ => throw new Exception(lines.head.toString + " should not be in block lines")
     }
     if(extendLines.tail.nonEmpty) {
-      lineNr+=1;
       defstring += convertBlock(extendLines.tail, defaultReg, newenv)._1
     }
     //defstring += freeMemory((newenv.toSet diff env.toSet).toMap)
     (defstring, Type.Undefined());
   }
+  /*
+  //TODO improve with boolean operations
   private def convertCondition(input: Expr, reg: List[String], env: Env, orMode: Boolean, trueLabel: String, falseLabel: String): String = {
-    def compare(left: Expr, right: Expr): String = binOpTemplate(left, right, "cmp", reg, env)
+    //def compare(left: Expr, right: Expr): String = binOpTemplate(left, right, "cmp", reg, env)
+    def compare(left: Expr, right: Expr, numeric: Boolean): String = compareExpr(left, right, numeric, reg, env)
     val newtrueLabel = s"cond_${subconditionCounter}_true"
     val newfalseLabel = s"cond_${subconditionCounter}_false"
     val ret = input match {
       case Expr.True() => if(orMode) s"jmp ${trueLabel}\n" else ""
       case Expr.False() => if(!orMode) s"jmp ${falseLabel}\n" else ""
       case Expr.Equals(left, right) => {
-        compare(left, right) + ( if(orMode) s"je ${trueLabel}\n" else s"jne ${falseLabel}\n" )
+        compare(left, right, false) + ( if(orMode) s"je ${trueLabel}\n" else s"jne ${falseLabel}\n" )
       }
       case Expr.LessThan(left, right) => {
-        compare(left, right) + ( if(orMode) s"jl ${trueLabel}\n" else s"jge ${falseLabel}\n" )
+        compare(left, right, true) + ( if(orMode) s"jl ${trueLabel}\n" else s"jge ${falseLabel}\n" )
       }
       case Expr.MoreThan(left, right) => {
-        compare(left, right) + ( if(orMode) s"jg ${trueLabel}\n" else s"jle ${falseLabel}\n" )
+        compare(left, right, true) + ( if(orMode) s"jg ${trueLabel}\n" else s"jle ${falseLabel}\n" )
       }
       case Expr.Not(cond) => {
         subconditionCounter += 1
@@ -273,8 +315,26 @@ object ToAssembly {
         list.foldLeft("")((acc, subcond) => acc + convertCondition(subcond, reg, env, orMode = true, newtrueLabel, newfalseLabel)) +
           s"${newfalseLabel}:\n" + s"jmp ${falseLabel}\n" + s"${newtrueLabel}:\n" + s"jmp ${trueLabel}\n"
       }
+      case expr => convert(expr, reg, env) match {
+        case (code, Type.Bool()) => compare(expr, Expr.True(), false) + ( if(orMode) s"je ${trueLabel}\n" else s"jne ${falseLabel}\n" )
+        case (_, t) => throw new Exception(s"got type $t inside condition, expected bool")
+      }
     }
     ret
+  }
+
+   */
+  def compareExpr(left: Expr, right: Expr, numeric: Boolean, reg: List[String], env: Env): String = {
+    val leftout = convert(left, reg, env);
+    val rightout = convert(right, reg.tail, env);
+    (leftout._2, rightout._2) match {
+      case (Type.Bool(), Type.Bool()) if !numeric => ;
+      case (Type.Num(), Type.Num()) => ;
+      case (Type.NumFloat(), Type.NumFloat()) => ;
+      case (Type.Character(), Type.Character()) => ;
+      case (t1, t2) => throw new Exception(s"can not compare types of $t1 and $t2")
+    }
+    leftout._1 + rightout._1 + s"cmp ${reg.head}, ${reg.tail.head}\n"
   }
   private def declareFunctions(input: Expr.TopLevel): Unit = {
     functions = input.functions.map(x=> FunctionInfo(x.name, x.argNames, x.retType))
@@ -328,7 +388,9 @@ object ToAssembly {
     input.map(function => {
       val info = functions.find(x=>x.name == function.name && x.args==function.argNames).get;
       functionScope = info;
-      var ret = "\n" + s"${fNameSignature(info.name, info.args.map(x=>x.varType))}:\n" +
+      var ret = "\n" + s"${fNameSignature(info.name, info.args.map(x=>x.varType))}:\n"
+      if(info.name == "main") ret += "mov [main_rbp], rbp\nmov [main_rsp], rsp\n"
+      ret +=
         """ push rbp
           | mov rbp, rsp
           | sub rsp, 256
@@ -343,6 +405,12 @@ object ToAssembly {
       }).mkString
       ret += convert(function.body, defaultReg, env)._1
       if(info.retType == Type.Undefined()) ret += "leave\nret\n";
+      if(info.name == "main") {
+        //ret += "exception:\nmov rdi, 1\nmov rbp, [main_rbp]\nmov rsp, [main_rsp]\nmov rdx, [rsp-8]\njmp rdx\n"
+        //ret += "exception:\nmov rax, 1\nmov rbx, 1\nint 0x80\n"
+        ret += "exception:\nmov rdi, 1\ncall exit\n"
+      }
+
       ret
     }).mkString
   }
@@ -442,7 +510,8 @@ object ToAssembly {
   def getArrayDirect(code: String, index: Int, size: Int, reg: List[String]): String = {
     s"mov ${reg.tail.head}, ${code}\n" + s"mov ${reg.head}, [${reg.tail.head}+${index*size}]\n"
   }
-  val fullToByteReg: Map[String, String] = Map(("rax", "al"), ("rdi", "dil"))
+  //List("rax", "rdi", "rsi", "rdx", "rcx", "r8", "r9", "r10", "r11")
+  val fullToByteReg: Map[String, String] = Map(("rax", "al"), ("rdi", "dil"), ("rsi", "sil"), ("rdx","dl"))
   def sizeToReg(size: Int, reg: String): String = size match {
     case 8 => reg
     case 1 => fullToByteReg.getOrElse(reg, reg)
@@ -550,10 +619,13 @@ object ToAssembly {
   }
   def printInterp(toPrint: Expr, env: Env): String = {
     val converted = convert(toPrint, defaultReg, env)
+    ifCounter+=1
     converted._2 match {
       case Type.Num() => converted._1 + printTemplate("format_num");
       case Type.NumFloat() => converted._1 + "movq xmm0, rax\n" + "mov rdi, format_float\n" + "mov rax, 1\n" + "call printf\n"
       //case (Type.Str) => converted._1 + printTemplate("format_string");
+      case Type.Bool() => converted._1 + s"cmp rax, 0\nje bool_${ifCounter}\n" + printTemplate("format_true") +
+        s"jmp boole_${ifCounter}\nbool_${ifCounter}:\n" + printTemplate("format_false") + s"boole_${ifCounter}:\n";
       case Type.Character() => converted._1 + printTemplate("format_char");
       case Type.Array(Type.Character()) => converted._1 + "add rax, 8\n" + printTemplate("format_string");
       case _ => throw new Exception(s"input of type ${converted._2} not recognized in print")

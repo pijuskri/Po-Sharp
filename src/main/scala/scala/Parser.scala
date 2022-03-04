@@ -50,9 +50,10 @@ object Parser {
   } )).map(x=>Expr.Block(x))
   def line[_: P]: P[Expr] = P(expr ~/ ";")
 
-  def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | NoCut(setVar) | callFuncInLine | retFunction | IfOp | whileLoop | forLoop | print | callFunction)
+  def expr[_: P]: P[Expr] = P( arrayDef | arrayDefDefault | defAndSetVal | defVal | NoCut(setVar) | callFuncInLine | retFunction | IfOp | whileLoop | forLoop | print | callFunction | throwException)
 
-  def prefixExpr[_: P]: P[Expr] = P( NoCut(convert) |  NoCut(parens) | arrayDef | arrayDefDefault | instanceInterface | accessVar | NoCut(getArraySize) | callFunction | numberFloat | number | ident | constant | str | char)
+  def prefixExpr[_: P]: P[Expr] = P( NoCut(convert) | NoCut(parens) | NoCut(condition) | arrayDef | arrayDefDefault | instanceInterface | accessVar | NoCut(getArraySize) | callFunction |
+    numberFloat | number | ident | constant | str | char | trueC | falseC)
 
   def defVal[_: P]: P[Expr.DefVal] = P("val " ~/ ident ~ typeDef.?).map{
     case(ident, Some(varType)) => Expr.DefVal(ident, varType)
@@ -157,10 +158,11 @@ object Parser {
   def typeDef[_: P]: P[Type] = P(":" ~/ (typeBase | typeArray | typeUser))
   def typeArray[_: P]: P[Type] =  P("array" ~/ "[" ~ typeBase ~ "]").map(x=>Type.Array(x))
   def typeUser[_: P]: P[Type] =  P(ident).map(x=>Type.UserType(x.name))
-  def typeBase[_: P]: P[Type] = P(StringIn("int", "char", "float", "string", "void", "T1", "T2").!).map{
+  def typeBase[_: P]: P[Type] = P(StringIn("int", "char", "float", "bool", "string", "void", "T1", "T2").!).map{
     case "int" => Type.Num();
     case "char" => Type.Character();
     case "float" => Type.NumFloat();
+    case "bool" => Type.Bool();
     case "string" => Type.Array(Type.Character());
     case "void" => Type.Undefined();
     case "T1" => Type.T1();
@@ -247,9 +249,10 @@ object Parser {
   def falseC[_: P]: P[Expr.False] = P("false").map(_ => Expr.False())
 
   def print[_: P]: P[Expr.Print] = P("print" ~ "(" ~/ ( NoCut(binOp) | prefixExpr ) ~ ")").map(Expr.Print)
+  def throwException[_: P]: P[Expr.ThrowException] = P("throw" ~/ "exception").map(x=>Expr.ThrowException())
 
   class ParseException(s: String) extends RuntimeException(s)
-  val reservedKeywords = List("def", "val", "if", "while", "true", "false", "array", "for", "print", "interface", "return", "object")
+  val reservedKeywords = List("def", "val", "if", "while", "true", "false", "array", "for", "print", "interface", "return", "object", "throw", "exception")
   def checkForReservedKeyword(input: Expr.Ident): Unit ={
     if(reservedKeywords.contains(input.name)) throw new ParseException(s"${input.name} is a reserved keyword");
   }
