@@ -29,9 +29,11 @@ jobs:
     - name: Execute Gradle build
       run: gradle build
 
-    - name: Verify make installation
+    - name: Install dependencies
       shell: wsl-bash {0}
-      run: make -version
+      run: |
+        apt update
+        apt install make nasm gcc -y
     
     - name: Run tests
       run: gradle runTests

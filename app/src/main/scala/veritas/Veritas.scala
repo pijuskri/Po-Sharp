@@ -145,6 +145,7 @@ object Veritas {
         } catch {
           case e: Exception =>
             chunkedOut.append(s"${el.getName}: $RED[ERROR]$RESET Could not instantiate $c.$lastMethodName with: $e\n")
+            exitCode = 1
         } finally {
           // Add to actual string builder
           this.synchronized(out.append(chunkedOut.toString))
