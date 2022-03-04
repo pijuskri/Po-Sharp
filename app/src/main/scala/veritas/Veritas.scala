@@ -10,6 +10,7 @@ import java.util.concurrent.{Executors, TimeUnit}
 import scala.Main.writeToFile
 import scala.io.AnsiColor._
 import scala.reflect.internal.util.ScalaClassLoader
+import Parser._
 import scala.sys.process.Process
 
 /**
@@ -138,7 +139,8 @@ object Veritas {
           }
         } catch {
           case e: Exception =>
-            chunkedOut.append(s"${el.getName}: $RED[ERROR]$RESET Could not instantiate $c.$lastMethodName with: $e")
+            chunkedOut.append(s"${el.getName}: $RED[ERROR]$RESET Could not instantiate $c.$lastMethodName with: $e\n")
+            exitCode = 1
         } finally {
           // Add to actual string builder
           this.synchronized(out.append(chunkedOut.toString))
@@ -173,16 +175,20 @@ object Veritas {
       .filter(_.isFile)
       .filter(_.getName.contains("test"))
       .foreach(el => el.delete())
+
+    System.exit(exitCode)
   }
 
   def GetOutput(input: String, fileName: String): String = {
     val parsed = Parser.parseInput(input)
     val asm = ToAssembly.convertMain(parsed)
     writeToFile(asm, "compiled/", s"$fileName.asm")
-    val tmp = Process(s"wsl make TARGET_FILE=$fileName").!!
+    val tmp = Process(if (IsWindows()) {"wsl "} + s"make TARGET_FILE=$fileName" else {""}).!!
 
     tmp.split("\n").last.trim
   }
+
+  private def IsWindows(): Boolean = System.getProperty("os.name").toLowerCase().contains("windows")
 
   /**
    * Creates a unique-enough™ filename for the current test by concatenating the class name the test comes from with
