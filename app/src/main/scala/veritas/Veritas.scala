@@ -183,10 +183,12 @@ object Veritas {
     val parsed = Parser.parseInput(input)
     val asm = ToAssembly.convertMain(parsed)
     writeToFile(asm, "compiled/", s"$fileName.asm")
-    val tmp = Process(s"wsl make TARGET_FILE=$fileName").!!
+    val tmp = Process(if (IsWindows()) {"wsl "} + s"make TARGET_FILE=$fileName" else {""}).!!
 
     tmp.split("\n").last.trim
   }
+
+  private def IsWindows(): Boolean = System.getProperty("os.name").toLowerCase().contains("windows")
 
   /**
    * Creates a unique-enough™ filename for the current test by concatenating the class name the test comes from with
