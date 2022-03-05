@@ -16,10 +16,12 @@
 *** for contributors-url, forks-url, etc. This is an optional, concise syntax you may use.
 *** https://www.markdownguide.org/basic-syntax/#reference-style-links
 -->
+![](https://github.com/pijuskri/Po-Sharp/logo.png)
 [![Contributors][contributors-shield]][contributors-url]
 [![Issues][issues-shield]][issues-url]
 [![MIT License][license-shield]][license-url]
 [![LinkedIn][linkedin-shield]][linkedin-url]
+
 
 <h2 align="center">Po#</h2>
 <div>
@@ -106,7 +108,7 @@ With sbt
 
 ### Program example
 
-``` 
+```scala 
 //recursive fibonacci implementation
 def main(): int {
   val a = 9;
@@ -119,6 +121,7 @@ def fib(n: int): int {
 }
 ```
 
+[More examples](docs/examples.txt) <br>
 [Full guide to the language](docs/Guide.md)
 
 ### Progress
@@ -128,28 +131,42 @@ def fib(n: int): int {
 * variable definition and assignment
 * print function
 * if/else (&&, ||, ==, >, <, !, !=, >=, <=), forced parenthesis
-* While loops
+* While, for loops
 * Arrays(default values, size access)
-* Types(integers, arrays)
+* Types
 * Functions
 * Float support
+* Strings
+* Enums
+* Objects
 
 ### To do
 <div id="todo"></div>
 
-* Strings
-* Loops (for)
-* dynamic arrays/array size at runtime
+#### Major
+
+* Generics
+* runtime exceptions
+* Object inheritance
+* lambda functions
 * library functions
-* Input filename (perhaps make compiled version for release)
-* user input
 * typeof
 * Garbage collector
-* Objects/structs
 * multiple files
 * packages
 * File i/o
-* Optimisations with register/stack combinations
+* Optimisation
+
+#### Minor
+
+* Structs
+* ref/out
+* Type alias
+* Interface union
+* String manipulation
+* user input
+* online demo for posharp
+* Input filename (perhaps make compiled version for release)
 
 
 <!-- MARKDOWN LINKS & IMAGES -->

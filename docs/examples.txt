@@ -1,0 +1,81 @@
+//recursive fibonacci
+def fib(n: int): int {
+  if(n <= 1) {return n;};
+  return (fib((n-1)) + fib((n-2)));
+}
+
+
+//dynamic array implementation
+object Dynamic {
+    size: int;
+    allocated: int;
+    arr: array[int];
+    def Dynamic(self: Dynamic) {
+        self.arr = array[int][2];
+        self.allocated = 2;
+        self.size = 0;
+    }
+    def push(self: Dynamic, value: int) {
+        self.arr[self.size] = value;
+        self.size += 1;
+        if(self.allocated == self.size) {
+            val newsize = (self.allocated * 2);
+            val old = self.arr;
+            self.arr = array[int][newsize];
+            for(val i = 0; i < self.size; i+= 1;) {
+                self.arr[i] = old[i];
+            };
+            self.allocated = newsize;
+        };
+    }
+    def get(self: Dynamic, index: int): int {
+        if(index >= self.size) {
+            print("can not do that");
+            throw exception;
+        };
+        return self.arr[index];
+    }
+    def print_arr(self: Dynamic) {
+        for(val i = 0; i < self.size; i+= 1;) {
+            print(self.arr[i]);
+        };
+    }
+    def compare(self: Dynamic, other: Dynamic): bool {
+        val same: bool = true;
+        if(self.size != other.size) {return false;};
+        for(val i = 0; i < self.size; i+= 1;) {
+            if(self.get(i) != other.get(i)) {same = false;};
+        };
+        return same;
+    }
+}
+
+
+//example with templates
+/*
+def main(): int {
+    val a = array(1,2,3);
+    val b = array(4,5,6);
+    val c = concat(a,b);
+    print_arr(c);
+}
+*/
+def concat(a: array[T1], b: array[T1]): array[T1] {
+    val combined = (a.size + b.size);
+    val ret = array[T1][combined];
+    for(val i = 0; i < a.size; i += 1;) {
+        ret[i] = a[i];
+    };
+    for(val i = 0; i < b.size; i += 1;) {
+        ret[(i + a.size)] = b[i];
+    };
+    return ret;
+}
+def print_arr(a: array[int]) {
+    val b = 0;
+    while(b < a.size) {
+        print(a[b]);
+        b += 1;
+    };
+    return;
+}
