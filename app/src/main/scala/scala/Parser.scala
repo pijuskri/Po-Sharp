@@ -59,7 +59,7 @@ object Parser {
 
   def expr[_: P]: P[Expr] = P(arrayDef | arrayDefDefault | defAndSetVal | defVal | NoCut(setVar) | callFuncInLine | retFunction | IfOp | whileLoop | forLoop | print | callFunction | throwException)
 
-  def prefixExpr[_: P]: P[Expr] = P(NoCut(convert) | NoCut(parens) | NoCut(condition) | arrayDef | arrayDefDefault | instanceInterface | accessVar | NoCut(getArraySize) | callFunction |
+  def prefixExpr[_: P]: P[Expr] = P( NoCut(callFunction) | NoCut(convert) | NoCut(parens) | NoCut(condition) | arrayDef | arrayDefDefault | instanceInterface | accessVar | NoCut(getArraySize) |
     numberFloat | number | ident | constant | str | char | trueC | falseC)
 
   def defVal[_: P]: P[Expr.DefVal] = P("val " ~/ ident ~ typeDef.?).map {
@@ -205,7 +205,7 @@ object Parser {
 
   def callFunction[_: P]: P[Expr.CallF] = P(ident ~ "(" ~/ prefixExpr.rep(sep = ",") ~/ ")").map {
     case (name, args) => Expr.CallF(name.name, args.toList);
-  }.filter((x) => !reservedKeywords.contains(x.name))
+  }//.filter((x) => !reservedKeywords.contains(x.name))
 
   def retFunction[_: P]: P[Expr.Return] = P("return" ~/ prefixExpr.?).map(Expr.Return)
 
@@ -223,14 +223,15 @@ object Parser {
     }
   }
 
-  def IfOp[_: P]: P[Expr.If] = P("if" ~/ condition ~/ block ~/ elseOp.?).map {
+  def IfOp[_: P]: P[Expr.If] = P("if" ~/ "(" ~ conditionNoParen ~ ")" ~/ block ~/ elseOp.?).map {
     case (cond, ex_true, Some(ex_else)) => Expr.If(cond, ex_true, ex_else);
     case (cond, ex_true, None) => Expr.If(cond, ex_true, Expr.Block(List()));
   }
 
-  def condition[_: P]: P[Expr] = P("(" ~/ conditionNoParen ~ ")")
+  def condition[_: P]: P[Expr] = P(("(" ~/ conditionNoParen ~ ")") | returnsBool)
 
-  def conditionNoParen[_: P]: P[Expr] = P(negate | condOp | conditionBin | constant | condition)
+  def conditionNoParen[_: P]: P[Expr] = P(negate | condOp | conditionBin | constant | returnsBool | condition)
+  def returnsBool[_: P]: P[Expr] = P(NoCut(convert) | NoCut(parens) | accessVar | callFunction | ident | constant)
 
   def negate[_: P]: P[Expr.Not] = P("!" ~/ condition).map(Expr.Not)
 
@@ -282,7 +283,7 @@ object Parser {
 
   class ParseException(s: String) extends RuntimeException(s)
 
-  val reservedKeywords = List("def", "val", "if", "while", "true", "false", "array", "for", "print", "interface", "return", "object", "throw", "exception")
+  val reservedKeywords = List("def", "val", "if", "while", "true", "false", "array", "for", "print", "new", "interface", "return", "object", "throw", "exception")
 
   def checkForReservedKeyword(input: Expr.Ident): Unit = {
     if (reservedKeywords.contains(input.name)) throw new ParseException(s"${input.name} is a reserved keyword");

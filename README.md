@@ -16,10 +16,12 @@
 *** for contributors-url, forks-url, etc. This is an optional, concise syntax you may use.
 *** https://www.markdownguide.org/basic-syntax/#reference-style-links
 -->
+![](https://github.com/pijuskri/Po-Sharp/logo.png)
 [![Contributors][contributors-shield]][contributors-url]
 [![Issues][issues-shield]][issues-url]
 [![MIT License][license-shield]][license-url]
 [![LinkedIn][linkedin-shield]][linkedin-url]
+
 
 <h2 align="center">Po#</h2>
 <div>
@@ -130,13 +132,11 @@ def fib(n: int): int {
 * if/else (&&, ||, ==, >, <, !, !=, >=, <=), forced parenthesis
 * While, for loops
 * Arrays(default values, size access)
-* Types(integers, arrays)
+* Types
 * Functions
 * Float support
 * Strings
-* Structs
 * Enums
-* Generics
 * Objects
 
 ### To do
@@ -144,6 +144,7 @@ def fib(n: int): int {
 
 #### Major
 
+* Generics
 * runtime exceptions
 * Object inheritance
 * lambda functions
@@ -157,6 +158,7 @@ def fib(n: int): int {
 
 #### Minor
 
+* Structs
 * ref/out
 * Type alias
 * Interface union

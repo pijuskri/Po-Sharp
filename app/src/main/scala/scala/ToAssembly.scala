@@ -134,6 +134,7 @@ object ToAssembly {
           case None => throw new Exception(s"interface ${interfaces.find(x=>x.args == props).get.name} does not have a property ${prop}")
         }
         case (code, Type.Enum(el)) => (s"mov ${reg.head}, 0${el.indexOf(prop)}d\n", Type.Num())
+        case (code, Type.Array(a)) if prop == "size" => conv(Expr.ArraySize(obj))
         case (x, valType) => throw new Exception(s"expected a interface, got ${valType}")
       }
       case Expr.CallObjFunc(obj, func) => conv(obj) match {
@@ -174,7 +175,7 @@ object ToAssembly {
       case Expr.And(l) => {
         val reg1 = sizeToReg(1, reg.head)
         val reg2 = sizeToReg(1, reg.tail.head)
-        val ret = l.foldLeft(s"mov $reg1, 1\n")((acc, v) => convert(v, reg.tail, env) match {
+        val ret = l.foldLeft(s"mov ${reg.head}, 1\n")((acc, v) => convert(v, reg.tail, env) match {
           case (code, Type.Bool()) => acc + code + s"and ${reg1}, ${reg2}\n" //cmp ${reg1}, 1\nsete $reg1\n
           case (_, t) => throw new Exception(s"expected bool in and, got $t")
         })
@@ -183,7 +184,7 @@ object ToAssembly {
       case Expr.Or(l) => {
         val reg1 = sizeToReg(1, reg.head)
         val reg2 = sizeToReg(1, reg.tail.head)
-        val ret = l.foldLeft(s"mov $reg1, 0\n")((acc, v) => convert(v, reg.tail, env) match {
+        val ret = l.foldLeft(s"mov ${reg.head}, 0\n")((acc, v) => convert(v, reg.tail, env) match {
           case (code, Type.Bool()) => acc + code + s"or ${reg1}, ${reg2}\n"
           case (_, t) => throw new Exception(s"expected bool in and, got $t")
         })
@@ -408,6 +409,7 @@ object ToAssembly {
       if(info.name == "main") {
         //ret += "exception:\nmov rdi, 1\nmov rbp, [main_rbp]\nmov rsp, [main_rsp]\nmov rdx, [rsp-8]\njmp rdx\n"
         //ret += "exception:\nmov rax, 1\nmov rbx, 1\nint 0x80\n"
+        ret += "mov rax, 0\nleave\nret\n";
         ret += "exception:\nmov rdi, 1\ncall exit\n"
       }
 
