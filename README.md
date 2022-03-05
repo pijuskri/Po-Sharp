@@ -16,15 +16,16 @@
 *** for contributors-url, forks-url, etc. This is an optional, concise syntax you may use.
 *** https://www.markdownguide.org/basic-syntax/#reference-style-links
 -->
-<!-- ![](logo.png) -->
-<div>
-    <img src='logo.png' style="width: 50%; margin: auto; display: block;" alt="">
-</div>
+
+<p align="center">
+    <img src='logo.png' style="width: 960px; height: 280px; object-fit: cover;" alt="">
+</p>
 
 [![Contributors][contributors-shield]][contributors-url]
 [![Issues][issues-shield]][issues-url]
 [![MIT License][license-shield]][license-url]
 [![LinkedIn][linkedin-shield]][linkedin-url]
+[![Build and Test](https://github.com/pijuskri/Po-Sharp/actions/workflows/workflow.yml/badge.svg?branch=master)](https://github.com/pijuskri/Po-Sharp/actions/workflows/workflow.yml)
 
 
 <h2 align="center">Po#</h2>
