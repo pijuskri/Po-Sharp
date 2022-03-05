@@ -17,7 +17,9 @@
 *** https://www.markdownguide.org/basic-syntax/#reference-style-links
 -->
 <!-- ![](logo.png) -->
-<img src='logo.png' style="width: 50%; margin: auto; display: block;" alt=""></img>
+<div>
+    <img src='logo.png' style="width: 50%; margin: auto; display: block;" alt="">
+</div>
 
 [![Contributors][contributors-shield]][contributors-url]
 [![Issues][issues-shield]][issues-url]
@@ -114,7 +116,7 @@ With sbt
 ### Language specification
 <div id="language"></div>
 
-####[Full guide to the language](docs/Guide.md)
+#### [Full guide to the language](docs/Guide.md)
 
 ```scala 
 //recursive fibonacci implementation
@@ -129,7 +131,7 @@ def fib(n: int): int {
 }
 ```
 
-####[More examples](docs/examples.txt) 
+#### [More examples](docs/examples.txt) 
 
 
 ### Progress
