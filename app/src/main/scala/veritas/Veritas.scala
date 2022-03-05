@@ -10,67 +10,7 @@ import java.util.concurrent.{Executors, TimeUnit}
 import scala.Main.writeToFile
 import scala.io.AnsiColor._
 import scala.reflect.internal.util.ScalaClassLoader
-import Parser._
 import scala.sys.process.Process
-
-/**
- * Holds a code snippet to execute for testing purposes.
- *
- * @param code The code snippet.
- */
-class PoSharpScript(code: String) {
-  private var expected = ""
-
-  /**
-   * Asserts that the expected value is equal to the output of the code snippet.
-   *
-   * @param expected The expected value.
-   * @return True iff the expected value matches the output of the code snippet.
-   */
-  def ShouldBe(expected: String): PoSharpScript = {
-    this.expected = expected
-    this
-  }
-
-  /**
-   * Asserts that the given exception is thrown when the snippet executes.
-   *
-   * @note This is a terminal method, i.e. you do not need to call Run after it.
-   * @param expected The expected exception.
-   * @return True iff the exception thrown has the same type as the expected one.
-   */
-  def ShouldThrow(expected: Throwable): (Boolean, String) = {
-    try {
-      Veritas.GetOutput(code, Veritas.getTestName)
-    } catch {
-      case e: Exception => return handleException(e)
-    }
-
-    def handleException(e: Exception): (Boolean, String) = {
-      if (expected.getClass == e.getClass)
-        (true, e.getMessage)
-      else
-        (false, s"Expected \"$expected.type\", \"$e.type\" was thrown instead")
-    }
-
-    (false, "No exception was thrown")
-  }
-
-  /**
-   * Compile, run the code snippet and check assertions.
-   *
-   * @return
-   */
-  def Run(): (Boolean, String) = {
-    val output = Veritas.GetOutput(code, Veritas.getTestName)
-
-    if (expected == output) {
-      (true, expected)
-    } else {
-      (false, s"was $expected")
-    }
-  }
-}
 
 object Veritas {
   private val numOfThreads = 10
@@ -183,7 +123,12 @@ object Veritas {
     val parsed = Parser.parseInput(input)
     val asm = ToAssembly.convertMain(parsed)
     writeToFile(asm, "compiled/", s"$fileName.asm")
-    val tmp = Process(if (IsWindows()) {"wsl "} + s"make TARGET_FILE=$fileName" else {""}).!!
+
+    val tmp = Process(if (IsWindows()) {
+      "wsl "
+    } + s"make TARGET_FILE=$fileName" else {
+      ""
+    }).!!
 
     tmp.split("\n").last.trim
   }
