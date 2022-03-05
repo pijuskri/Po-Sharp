@@ -17,10 +17,6 @@
 *** https://www.markdownguide.org/basic-syntax/#reference-style-links
 -->
 
-<style type="text/css" rel="stylesheet">
-img { width: 960px; height: 280px; object-fit: cover; }
-</style>
-
 <p align="center">
     <img src='logo.png' alt="">
 </p>
