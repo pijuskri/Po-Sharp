@@ -108,7 +108,7 @@ With sbt
 
 ### Program example
 
-``` 
+```scala 
 //recursive fibonacci implementation
 def main(): int {
   val a = 9;
@@ -121,6 +121,7 @@ def fib(n: int): int {
 }
 ```
 
+[More examples](docs/examples.txt) <br>
 [Full guide to the language](docs/Guide.md)
 
 ### Progress
