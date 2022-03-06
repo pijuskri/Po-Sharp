@@ -1,6 +1,7 @@
 package scala
 
 import scala.Type.{UserType, shortS}
+import scala.io.AnsiColor
 
 object ToAssembly {
   val defaultReg = List("rax", "rdi", "rsi", "rdx", "rcx", "r8", "r9", "r10", "r11")
@@ -269,7 +270,12 @@ object ToAssembly {
         }
 
       }
-      case Expr.ThrowException() => "jmp exception\n"
+      case Expr.ThrowException(err) => {
+        val msg = AnsiColor.RED + "RuntimeException: " + err + AnsiColor.RESET
+        val name = s"exception_print_${stringLiterals.length}"
+        stringLiterals = stringLiterals :+ s"$name:\n        db  \"${msg}\", 10, 0\n"
+        s"mov rax, $name\n" + printTemplate("format_string") + "jmp exception\n"
+      }
       case x@Expr.CallF(n, a) => convert(x, reg, env)._1;
       case x@Expr.Block(n) => convert(x, reg, env)._1;
       case x@Expr.CallObjFunc(obj, func) => convert(x, reg, env)._1;

@@ -62,7 +62,7 @@ object Expr{
   case class Convert(value: Expr, to: Type) extends Expr
 
   case class TopLevel(functions: List[Func], interfaces: List[DefineInterface], enums: List[DefineEnum]) extends Expr
-  case class ThrowException() extends Expr
+  case class ThrowException(errorMsg: String) extends Expr
   case class Nothing() extends Expr
   case class RawReference() extends Expr
 }

@@ -259,7 +259,7 @@ object Parser {
     Expr.Block(List(input._1, Expr.While(input._2, Expr.Block(input._4.lines :+ input._3))));
   })
 
-  def str[_: P]: P[Expr] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(x => Expr.Str(x + "\u0000"))
+  def str[_: P]: P[Expr.Str] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(x => Expr.Str(x + "\u0000"))
 
   def ident[_: P]: P[Expr.Ident] = P(CharIn("a-zA-Z_") ~~ CharsWhileIn("a-zA-Z0-9_", 0)).!.map((input) => {
     Expr.Ident(input)
@@ -279,7 +279,7 @@ object Parser {
 
   def print[_: P]: P[Expr.Print] = P("print" ~ "(" ~/ (NoCut(binOp) | prefixExpr) ~ ")").map(Expr.Print)
 
-  def throwException[_: P]: P[Expr.ThrowException] = P("throw" ~/ "exception").map(x => Expr.ThrowException())
+  def throwException[_: P]: P[Expr.ThrowException] = P("throw" ~/ "exception" ~/ "(" ~/ str ~/ ")").map(x => Expr.ThrowException(x.s.dropRight(1)))
 
   class ParseException(s: String) extends RuntimeException(s)
 
