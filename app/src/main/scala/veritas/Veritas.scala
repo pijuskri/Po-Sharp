@@ -17,7 +17,11 @@ object Veritas {
   private val chunkSize = 1
 
   def main(args: Array[String]): Unit = {
-    time(() => RunTests())
+    var exitCode = 0
+
+    time(() => exitCode = RunTests())
+
+    System.exit(exitCode)
   }
 
   /**
@@ -38,7 +42,7 @@ object Veritas {
    * Runs all tests in the <code>test</code> package. The classes need to be annotated with the <code>@Test</code>
    * annotation. For a method to be considered a test it must be suffixed with "test".
    */
-  def RunTests(): Unit = {
+  def RunTests(): Int = {
     val pool = Executors.newFixedThreadPool(numOfThreads)
 
     var exitCode = 0
@@ -63,28 +67,31 @@ object Veritas {
       val testClass = ScalaClassLoader(getClass.getClassLoader).tryToInitializeClass(c)
       var lastMethodName = ""
 
-      def runTest(instance: AnyRef, el: Method) = {
+      def runTest(instance: AnyRef, tests: Array[Method]): Unit = {
         // Put output here until all tests are done to avoid using synchronized
         val chunkedOut = new StringBuilder
 
         // Catches invalid tests (say main is missing from the code snippet)
-        try {
-          lastMethodName = el.getName
-          val (output, actual) = el.invoke(instance).asInstanceOf[(Boolean, String)]
-          if (output) {
-            chunkedOut.append(s"${el.getName}: $GREEN[PASSED]$RESET\n")
-          } else {
-            chunkedOut.append(s"${el.getName}: $RED[FAILED]$RESET | $actual\n")
-            exitCode = 1
+        tests.foreach(el => {
+          // Catches invalid tests (say main is missing from the code snippet)
+          try {
+            lastMethodName = el.getName
+            val (output, actual) = el.invoke(instance).asInstanceOf[(Boolean, String)]
+            if (output) {
+              chunkedOut.append(s"$GREEN[PASSED]$RESET: ${el.getName}\n")
+            } else {
+              chunkedOut.append(s"$RED[FAILED]$RESET: ${el.getName} | $actual\n")
+              exitCode = 1
+            }
+          } catch {
+            case e: Exception =>
+              chunkedOut.append(s"$RED[ERROR]$RESET : ${el.getName} Could not instantiate $c.${el.getName} with: $e\n")
+              exitCode = 1
           }
-        } catch {
-          case e: Exception =>
-            chunkedOut.append(s"${el.getName}: $RED[ERROR]$RESET Could not instantiate $c.$lastMethodName with: $e\n")
-            exitCode = 1
-        } finally {
-          // Add to actual string builder
-          this.synchronized(out.append(chunkedOut.toString))
-        }
+        })
+
+        // Add to actual string builder
+        this.synchronized(out.append(chunkedOut.toString))
       }
 
       try {
@@ -95,9 +102,7 @@ object Veritas {
           m.getName.toLowerCase().contains("test")) // Filter out non-test methods
           .grouped(chunkSize) // Group in chunks
           .foreach(chunk => {
-            pool.execute(() => {
-              chunk.foreach(runTest(instance, _))
-            })
+            pool.execute(() => runTest(instance, chunk))
           })
       } catch {
         case e: Exception =>
@@ -116,7 +121,7 @@ object Veritas {
       .filter(_.getName.contains("test"))
       .foreach(el => el.delete())
 
-    System.exit(exitCode)
+    exitCode
   }
 
   def GetOutput(input: String, fileName: String): String = {
