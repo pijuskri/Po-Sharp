@@ -1,3 +1,116 @@
-def main(): int {
-    print("hello world!");
+/*
+def apply(a: int, b: int, f: func[(int, int) => int]): int {
+    return f(a, b);
 }
+def main(): int {
+    val c = 5;
+    val a = lambda (x: int, y: int): int => (x + y + c);
+    val b = apply(5,6,a);
+    print(b);
+}
+*/
+
+object Dynamic {
+    size: int;
+    allocated: int;
+    arr: array[int];
+    map: func[(func[(int) => int]) => Dynamic];
+    //map: func[(int) => int];
+    def Dynamic(self: Dynamic) {
+        self.arr = array[int][2];
+        self.allocated = 2;
+        self.size = 0;
+
+        self.map = lambda (f: func[(int) => int]): Dynamic => {
+            val ret = self.copy();
+
+            for(val i = 0; i < self.size; i+= 1;) {
+               ret.arr[i] = f(ret.arr[i]);
+            };
+            return ret;
+        };
+
+    }
+    def push(self: Dynamic, value: int) {
+        self.arr[self.size] = value;
+        self.size += 1;
+        if(self.allocated == self.size) {
+            val newsize = (self.allocated * 2);
+            val old = self.arr;
+            self.arr = array[int][newsize];
+            for(val i = 0; i < self.size; i+= 1;) {
+                self.arr[i] = old[i];
+            };
+            self.allocated = newsize;
+        };
+    }
+    def get(self: Dynamic, index: int): int {
+        if(index >= self.size) {
+            throw exception("index out of bounds");
+        };
+        return self.arr[index];
+    }
+    def print_arr(self: Dynamic) {
+        for(val i = 0; i < self.size; i+= 1;) {
+            print(self.arr[i]);
+        };
+    }
+    def copy(self: Dynamic): Dynamic {
+        val arr_new = new Dynamic();
+        for(val i = 0; i < self.size; i+= 1;) {
+           arr_new.push(self.arr[i]);
+        };
+        return arr_new;
+    }
+    def compare(self: Dynamic, other: Dynamic): bool {
+        val same: bool = true;
+        if(self.size != other.size) {return false;};
+        for(val i = 0; i < self.size; i+= 1;) {
+            if(self.get(i) != other.get(i)) {same = false;};
+        };
+        return same;
+    }
+}
+def main(): int {
+
+    val a = new Dynamic();
+    a.push(1);
+    a.push(2);
+    a.push(3);
+    a.push(4);
+    val f = lambda(x: int): int => (x * x);
+    val b = a.map(f);
+    b.print_arr();
+    return 0;
+}
+
+
+
+/*
+def main(): int {
+    val a = array(1,2,3);
+    val b = array(4,5,6);
+    val c = concat(a,b);
+    print_arr(c);
+    return 0;
+}
+def concat(a: array[T1], b: array[T1]): array[T1] {
+    val combined = (a.size + b.size);
+    val ret = array[T1][combined];
+    for(val i = 0; i < a.size; i += 1;) {
+        ret[i] = a[i];
+    };
+    for(val i = 0; i < b.size; i += 1;) {
+        ret[(i + a.size)] = b[i];
+    };
+    return ret;
+}
+def print_arr(a: array[int]) {
+    val b = 0;
+    while(b < a.size) {
+        print(a[b]);
+        b += 1;
+    };
+    return;
+}
+*/

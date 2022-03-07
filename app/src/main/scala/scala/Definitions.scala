@@ -41,6 +41,7 @@ object Expr{
 
   //case class StackVar(offset: Int) extends Expr
   case class Func(name: String, argNames: List[InputVar], retType: Type, body: Expr.Block) extends Expr
+  case class Lambda(argNames: List[InputVar], retType: Type, body: Expr.Block) extends Expr
   case class CallF(name: String, args: List[Expr]) extends Expr
   case class Return(value: Option[Expr]) extends Expr
 
@@ -64,6 +65,7 @@ object Expr{
   case class TopLevel(functions: List[Func], interfaces: List[DefineInterface], enums: List[DefineEnum]) extends Expr
   case class ThrowException(errorMsg: String) extends Expr
   case class Nothing() extends Expr
+  case class Compiled(code: String, raxType: Type) extends Expr
   case class RawReference() extends Expr
 }
 
@@ -77,6 +79,7 @@ object Type {
   case class Bool() extends Type
   //case class Interface(properties: List[InputVar]) extends Type
   case class Interface(properties: List[InputVar], functions: List[FunctionInfo]) extends Type
+  case class Function(args: List[Type], retType: Type) extends Type
   case class T1() extends Type
   case class Enum(el: List[String]) extends Type
 
@@ -90,7 +93,8 @@ object Type {
     case Bool() => "b"
     case Array(inner) => "arr_"+shortS(inner)+"_"
     //case Interface(inner) => "itf_"+inner.map(x=>shortS(x.varType))+"_"
-    case Interface(inner, innerf) => "itf_"+inner.map(x=>shortS(x.varType))+"_"+innerf.map(x=>x.name)+"_"
+    case Interface(inner, innerf) => "itf_"+inner.map(x=>shortS(x.varType)).mkString+"_"+innerf.map(x=>x.name)+"_"
+    case Function(args, retType) => "func_"+args.map(x=>shortS(x)).mkString+"_"+shortS(retType)
     case UserType(name) => name
     case T1() => "T1"
   }
