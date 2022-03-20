@@ -314,49 +314,7 @@ object ToAssembly {
     //defstring += freeMemory((newenv.toSet diff env.toSet).toMap)
     (defstring, Type.Undefined());
   }
-  /*
-  //TODO improve with boolean operations
-  private def convertCondition(input: Expr, reg: List[String], env: Env, orMode: Boolean, trueLabel: String, falseLabel: String): String = {
-    //def compare(left: Expr, right: Expr): String = binOpTemplate(left, right, "cmp", reg, env)
-    def compare(left: Expr, right: Expr, numeric: Boolean): String = compareExpr(left, right, numeric, reg, env)
-    val newtrueLabel = s"cond_${subconditionCounter}_true"
-    val newfalseLabel = s"cond_${subconditionCounter}_false"
-    val ret = input match {
-      case Expr.True() => if(orMode) s"jmp ${trueLabel}\n" else ""
-      case Expr.False() => if(!orMode) s"jmp ${falseLabel}\n" else ""
-      case Expr.Equals(left, right) => {
-        compare(left, right, false) + ( if(orMode) s"je ${trueLabel}\n" else s"jne ${falseLabel}\n" )
-      }
-      case Expr.LessThan(left, right) => {
-        compare(left, right, true) + ( if(orMode) s"jl ${trueLabel}\n" else s"jge ${falseLabel}\n" )
-      }
-      case Expr.MoreThan(left, right) => {
-        compare(left, right, true) + ( if(orMode) s"jg ${trueLabel}\n" else s"jle ${falseLabel}\n" )
-      }
-      case Expr.Not(cond) => {
-        subconditionCounter += 1
-        convertCondition(cond, reg, env, orMode = orMode, newtrueLabel, newfalseLabel) +
-          s"${newtrueLabel}:\n" + s"jmp ${falseLabel}\n" + s"${newfalseLabel}:\n" + s"jmp ${trueLabel}\n"
-      }
-      case Expr.And(list) => {
-        subconditionCounter += 1;
-        list.foldLeft("")((acc, subcond) => acc + convertCondition(subcond, reg, env, orMode = false, newtrueLabel, newfalseLabel)) +
-          s"${newtrueLabel}:\n" + s"jmp ${trueLabel}\n" + s"${newfalseLabel}:\n" + s"jmp ${falseLabel}\n"
-      }
-      case Expr.Or(list) => {
-        subconditionCounter += 1;
-        list.foldLeft("")((acc, subcond) => acc + convertCondition(subcond, reg, env, orMode = true, newtrueLabel, newfalseLabel)) +
-          s"${newfalseLabel}:\n" + s"jmp ${falseLabel}\n" + s"${newtrueLabel}:\n" + s"jmp ${trueLabel}\n"
-      }
-      case expr => convert(expr, reg, env) match {
-        case (code, Type.Bool()) => compare(expr, Expr.True(), false) + ( if(orMode) s"je ${trueLabel}\n" else s"jne ${falseLabel}\n" )
-        case (_, t) => throw new Exception(s"got type $t inside condition, expected bool")
-      }
-    }
-    ret
-  }
 
-   */
   def compareExpr(left: Expr, right: Expr, numeric: Boolean, reg: List[String], env: Env): String = {
     val leftout = convert(left, reg, env);
     val rightout = convert(right, reg.tail, env);

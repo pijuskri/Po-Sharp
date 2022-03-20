@@ -150,20 +150,20 @@ def fib(n: int): int {
 * Strings
 * Enums
 * Objects
+* runtime exceptions
+* lambda functions
 
 ### To do
 <div id="todo"></div>
 
 #### Major
 
+* multiple files
 * Generics
-* runtime exceptions
 * Object inheritance
-* lambda functions
 * library functions
 * typeof
 * Garbage collector
-* multiple files
 * packages
 * File i/o
 * Optimisation
