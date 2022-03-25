@@ -11,6 +11,7 @@ import scala.Main.writeToFile
 import scala.io.AnsiColor._
 import scala.reflect.internal.util.ScalaClassLoader
 import scala.sys.process.Process
+import scala.util.{Failure, Success, Try}
 
 object Veritas {
   private val numOfThreads = 10
@@ -47,6 +48,7 @@ object Veritas {
 
     var exitCode = 0
     val out = new StringBuilder
+    out.append('\n')
 
     // reflection stuff
     val reflections = new Reflections(new ConfigurationBuilder()
@@ -59,8 +61,10 @@ object Veritas {
       .get("TypesAnnotated")
       .get("scala.reflect.ScalaSignature")
       .toArray
-      .filter(el => el.asInstanceOf[String].contains("test."))
-      .map(el => el.asInstanceOf[String])
+      .filter(_.asInstanceOf[String].contains("test."))
+      .map(_.asInstanceOf[String])
+
+    println()
 
     // Get the class and instantiate it
     res.foreach(c => {
@@ -76,7 +80,12 @@ object Veritas {
           // Catches invalid tests (say main is missing from the code snippet)
           try {
             lastMethodName = el.getName
-            val (output, actual) = el.invoke(instance).asInstanceOf[(Boolean, String)]
+
+            val (output, actual) = el.invoke(instance) match {
+              case (output: Boolean, actual: String) => (output, actual)
+              case _ => throw InvalidReturnTypeException("Invalid test method return type. Should be (Boolean, String)")
+            }
+
             if (output) {
               chunkedOut.append(s"$GREEN[PASSED]$RESET: ${el.getName}\n")
             } else {
@@ -84,8 +93,9 @@ object Veritas {
               exitCode = 1
             }
           } catch {
-            case e: Exception =>
-              chunkedOut.append(s"$RED[ERROR]$RESET : ${el.getName} Could not instantiate $c.${el.getName} with: $e\n")
+            case _: Exception =>
+              chunkedOut.append(s"$RED[ERROR]$RESET : ${el.getName} Could not instantiate $c.${el.getName}" +
+                s", check logs above for more info.\n")
               exitCode = 1
           }
         })
@@ -124,9 +134,29 @@ object Veritas {
     exitCode
   }
 
-  def GetOutput(input: String, fileName: String): String = {
-    val parsed = Parser.parseInput(input)
-    val asm = ToAssembly.convertMain(parsed)
+  /**
+   * Parses and compiles the code to asm
+   *
+   * @param input The code
+   * @return Generated assembly
+   */
+  def Compile(input: String): Try[String] = {
+    try {
+      val parsed = Parser.parseInput(input)
+      Success(ToAssembly.convertMain(parsed))
+    } catch {
+      case e: Exception => Failure(e)
+    }
+  }
+
+  /**
+   * Writes the code to a file, executes it and returns the output.
+   *
+   * @param asm      Assembly
+   * @param fileName The filename
+   * @return The last thing printed by the code
+   */
+  def GetOutput(asm: String, fileName: String): String = {
     writeToFile(asm, "compiled/", s"$fileName.asm")
 
     val tmp = Process(if (IsWindows()) {
@@ -155,4 +185,6 @@ object Veritas {
   }
 
   class Test extends scala.annotation.ConstantAnnotation {}
+
+  case class InvalidReturnTypeException(msg: String) extends RuntimeException(msg)
 }
