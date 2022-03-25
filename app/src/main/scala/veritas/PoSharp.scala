@@ -1,10 +1,11 @@
 package veritas
 
 import scala.language.implicitConversions
+import scala.util.{Success, Failure}
 
 protected trait IPoSharp {
   /**
-   * Asserts that the expected value is equal to the output of the code snippet.
+   * Sets the expected value for the test.
    *
    * @param expected The expected value.
    * @return True iff the expected value matches the output of the code snippet.
@@ -36,35 +37,35 @@ object PoSharp {
     }
 
     def ShouldThrow(expected: Throwable): (Boolean, String) = {
-      try {
-        Veritas.GetOutput(code, Veritas.getTestName)
-      } catch {
-        case e: Exception => return handleException(e)
+      Veritas.Compile(code) match {
+        case Failure(exception) => exception match {
+          case e: Exception if e.getClass == expected.getClass => (true, e.getMessage)
+          case e: Exception => (false, s"Expected \"$expected.type\", \"$e.type\" was thrown instead")
+        }
+        case Success(_) => (false, "No exception was thrown")
       }
-
-      def handleException(e: Exception): (Boolean, String) = {
-        if (expected.getClass == e.getClass)
-          (true, e.getMessage)
-        else
-          (false, s"Expected \"$expected.type\", \"$e.type\" was thrown instead")
-      }
-
-      (false, "No exception was thrown")
     }
 
     /**
      * Compile, run the code snippet and check assertions.
      *
-     * @return
+     * @return (Passed/Failed, Failure debug message)
      */
     def Run(): (Boolean, String) = {
-      val output = Veritas.GetOutput(code, Veritas.getTestName)
+      Veritas.Compile(code) match {
+        case Success(value) =>
+          val output = Veritas.GetOutput(value, Veritas.getTestName)
 
-      if (expected == output) {
-        (true, expected)
-      } else {
-        (false, s"was $expected")
+          if (expected == output) {
+            (true, expected)
+          } else {
+            (false, s"Expected $expected, was $output")
+          }
+        case Failure(exception) =>
+          println(s"Compilation failed with $exception")
+          throw  exception
       }
+
     }
   }
 
