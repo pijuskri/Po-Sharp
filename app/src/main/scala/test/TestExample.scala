@@ -104,8 +104,8 @@ class TestExample {
               };
               return same;
           }
-      }
-      def main(): int {
+        }
+        def main(): int {
 
           val a = new Dynamic();
           //print(a.get(8));
@@ -119,8 +119,7 @@ class TestExample {
           print(a.compare(b));
           b.push(3);
           print(a.compare(b));
-      }
-      """
+        }"""
       .ShouldBe("true")
       .Run()
   }
