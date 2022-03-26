@@ -86,8 +86,7 @@ class TestExample {
           }
           def get(self: Dynamic, index: int): int {
               if(index >= self.size) {
-                  print("can not do that");
-                  throw exception;
+                  throw exception("index out of bounds");
               };
               return self.arr[index];
           }
