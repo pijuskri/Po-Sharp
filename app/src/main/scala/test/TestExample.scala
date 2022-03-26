@@ -105,7 +105,6 @@ class TestExample {
           }
         }
         def main(): int {
-
           val a = new Dynamic();
           //print(a.get(8));
           a.push(1);
