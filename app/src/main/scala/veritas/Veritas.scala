@@ -16,6 +16,7 @@ import scala.util.{Failure, Success, Try}
 object Veritas {
   private val numOfThreads = 10
   private val chunkSize = 1
+  private val cov = Coverage
 
   def main(args: Array[String]): Unit = {
     var exitCode = 0
@@ -123,6 +124,8 @@ object Veritas {
     pool.shutdown()
     pool.awaitTermination(5, TimeUnit.MINUTES)
     println(out)
+    println()
+    cov.CalculateCoverage().foreach(println)
 
     // Delete all files created by writeToFile and the tests
     new File("compiled")
@@ -139,11 +142,15 @@ object Veritas {
    *
    * @param input The code
    * @return Generated assembly
+   * @note [[ToAssembly.convertMain]] alters `ToAssembly`'s state and thus needs to be synchronized.
    */
   def Compile(input: String): Try[String] = {
     try {
       val parsed = Parser.parseInput(input)
-      Success(ToAssembly.convertMain(parsed))
+
+      cov.AddCoverage(parsed)
+
+      this.synchronized(Success(ToAssembly.convertMain(parsed)))
     } catch {
       case e: Exception => Failure(e)
     }
