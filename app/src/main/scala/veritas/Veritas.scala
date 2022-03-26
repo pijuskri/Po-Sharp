@@ -144,13 +144,13 @@ object Veritas {
    * @return Generated assembly
    * @note [[ToAssembly.convertMain]] alters `ToAssembly`'s state and thus needs to be synchronized.
    */
-  def Compile(input: String): Try[String] = this.synchronized {
+  def Compile(input: String): Try[String] = {
     try {
       val parsed = Parser.parseInput(input)
 
       cov.AddCoverage(parsed)
 
-      Success(ToAssembly.convertMain(parsed))
+      this.synchronized(Success(ToAssembly.convertMain(parsed)))
     } catch {
       case e: Exception => Failure(e)
     }
