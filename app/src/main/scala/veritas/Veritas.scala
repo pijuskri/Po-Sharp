@@ -10,74 +10,31 @@ import java.util.concurrent.{Executors, TimeUnit}
 import scala.Main.writeToFile
 import scala.io.AnsiColor._
 import scala.reflect.internal.util.ScalaClassLoader
-import Parser._
 import scala.sys.process.Process
-
-/**
- * Holds a code snippet to execute for testing purposes.
- *
- * @param code The code snippet.
- */
-class PoSharpScript(code: String) {
-  private var expected = ""
-
-  /**
-   * Asserts that the expected value is equal to the output of the code snippet.
-   *
-   * @param expected The expected value.
-   * @return True iff the expected value matches the output of the code snippet.
-   */
-  def ShouldBe(expected: String): PoSharpScript = {
-    this.expected = expected
-    this
-  }
-
-  /**
-   * Asserts that the given exception is thrown when the snippet executes.
-   *
-   * @note This is a terminal method, i.e. you do not need to call Run after it.
-   * @param expected The expected exception.
-   * @return True iff the exception thrown has the same type as the expected one.
-   */
-  def ShouldThrow(expected: Throwable): (Boolean, String) = {
-    try {
-      Veritas.GetOutput(code, Veritas.getTestName)
-    } catch {
-      case e: Exception => return handleException(e)
-    }
-
-    def handleException(e: Exception): (Boolean, String) = {
-      if (expected.getClass == e.getClass)
-        (true, e.getMessage)
-      else
-        (false, s"Expected \"$expected.type\", \"$e.type\" was thrown instead")
-    }
-
-    (false, "No exception was thrown")
-  }
-
-  /**
-   * Compile, run the code snippet and check assertions.
-   *
-   * @return
-   */
-  def Run(): (Boolean, String) = {
-    val output = Veritas.GetOutput(code, Veritas.getTestName)
-
-    if (expected == output) {
-      (true, expected)
-    } else {
-      (false, s"was $expected")
-    }
-  }
-}
+import scala.util.{Failure, Success, Try}
 
 object Veritas {
   private val numOfThreads = 10
   private val chunkSize = 1
+  private var cov: Coverage.type = _
+  private var calculateCoverage = false
 
+  /**
+   * Runs all tests. If the first argument is `coverage`, coverage is calculated and printed.
+   *
+   * @param args Command line arguments.
+   */
   def main(args: Array[String]): Unit = {
-    time(() => RunTests())
+    if (args.isDefinedAt(0) && args.head == "coverage") {
+      calculateCoverage = true
+      cov = Coverage
+    }
+
+    var exitCode = 0
+
+    time(() => exitCode = RunTests())
+
+    System.exit(exitCode)
   }
 
   /**
@@ -98,11 +55,12 @@ object Veritas {
    * Runs all tests in the <code>test</code> package. The classes need to be annotated with the <code>@Test</code>
    * annotation. For a method to be considered a test it must be suffixed with "test".
    */
-  def RunTests(): Unit = {
+  def RunTests(): Int = {
     val pool = Executors.newFixedThreadPool(numOfThreads)
 
     var exitCode = 0
     val out = new StringBuilder
+    out.append('\n')
 
     // reflection stuff
     val reflections = new Reflections(new ConfigurationBuilder()
@@ -115,36 +73,47 @@ object Veritas {
       .get("TypesAnnotated")
       .get("scala.reflect.ScalaSignature")
       .toArray
-      .filter(el => el.asInstanceOf[String].contains("test."))
-      .map(el => el.asInstanceOf[String])
+      .filter(_.asInstanceOf[String].contains("test."))
+      .map(_.asInstanceOf[String])
+
+    println()
 
     // Get the class and instantiate it
     res.foreach(c => {
       val testClass = ScalaClassLoader(getClass.getClassLoader).tryToInitializeClass(c)
       var lastMethodName = ""
 
-      def runTest(instance: AnyRef, el: Method) = {
+      def runTest(instance: AnyRef, tests: Array[Method]): Unit = {
         // Put output here until all tests are done to avoid using synchronized
         val chunkedOut = new StringBuilder
 
         // Catches invalid tests (say main is missing from the code snippet)
-        try {
-          lastMethodName = el.getName
-          val (output, actual) = el.invoke(instance).asInstanceOf[(Boolean, String)]
-          if (output) {
-            chunkedOut.append(s"${el.getName}: $GREEN[PASSED]$RESET\n")
-          } else {
-            chunkedOut.append(s"${el.getName}: $RED[FAILED]$RESET | $actual\n")
-            exitCode = 1
+        tests.foreach(el => {
+          // Catches invalid tests (say main is missing from the code snippet)
+          try {
+            lastMethodName = el.getName
+
+            val (output, actual) = el.invoke(instance) match {
+              case (output: Boolean, actual: String) => (output, actual)
+              case _ => throw InvalidReturnTypeException("Invalid test method return type. Should be (Boolean, String)")
+            }
+
+            if (output) {
+              chunkedOut.append(s"$GREEN[PASSED]$RESET: ${el.getName}\n")
+            } else {
+              chunkedOut.append(s"$RED[FAILED]$RESET: ${el.getName} | $actual\n")
+              exitCode = 1
+            }
+          } catch {
+            case _: Exception =>
+              chunkedOut.append(s"$RED[ERROR]$RESET : ${el.getName} Could not instantiate $c.${el.getName}" +
+                s", check logs above for more info.\n")
+              exitCode = 1
           }
-        } catch {
-          case e: Exception =>
-            chunkedOut.append(s"${el.getName}: $RED[ERROR]$RESET Could not instantiate $c.$lastMethodName with: $e\n")
-            exitCode = 1
-        } finally {
-          // Add to actual string builder
-          this.synchronized(out.append(chunkedOut.toString))
-        }
+        })
+
+        // Add to actual string builder
+        this.synchronized(out.append(chunkedOut.toString))
       }
 
       try {
@@ -155,9 +124,7 @@ object Veritas {
           m.getName.toLowerCase().contains("test")) // Filter out non-test methods
           .grouped(chunkSize) // Group in chunks
           .foreach(chunk => {
-            pool.execute(() => {
-              chunk.foreach(runTest(instance, _))
-            })
+            pool.execute(() => runTest(instance, chunk))
           })
       } catch {
         case e: Exception =>
@@ -168,6 +135,10 @@ object Veritas {
     pool.shutdown()
     pool.awaitTermination(5, TimeUnit.MINUTES)
     println(out)
+    println()
+
+    if (calculateCoverage)
+      cov.CalculateCoverage()
 
     // Delete all files created by writeToFile and the tests
     new File("compiled")
@@ -176,14 +147,44 @@ object Veritas {
       .filter(_.getName.contains("test"))
       .foreach(el => el.delete())
 
-    System.exit(exitCode)
+    exitCode
   }
 
-  def GetOutput(input: String, fileName: String): String = {
-    val parsed = Parser.parseInput(input)
-    val asm = ToAssembly.convertMain(parsed)
+  /**
+   * Parses and compiles the code to asm
+   *
+   * @param input The code
+   * @return Generated assembly
+   * @note [[ToAssembly.convertMain]] alters `ToAssembly`'s state and thus needs to be synchronized.
+   */
+  def Compile(input: String): Try[String] = {
+    try {
+      val parsed = Parser.parseInput(input)
+
+      if (calculateCoverage)
+        cov.AddCoverage(parsed)
+
+      this.synchronized(Success(ToAssembly.convertMain(parsed)))
+    } catch {
+      case e: Exception => Failure(e)
+    }
+  }
+
+  /**
+   * Writes the code to a file, executes it and returns the output.
+   *
+   * @param asm      Assembly
+   * @param fileName The filename
+   * @return The last thing printed by the code
+   */
+  def GetOutput(asm: String, fileName: String): String = {
     writeToFile(asm, "compiled/", s"$fileName.asm")
-    val tmp = Process(if (IsWindows()) {"wsl "} + s"make TARGET_FILE=$fileName" else {""}).!!
+
+    val tmp = Process(if (IsWindows()) {
+      "wsl "
+    } + s"make TARGET_FILE=$fileName" else {
+      ""
+    }).!!
 
     tmp.split("\n").last.trim
   }
@@ -205,4 +206,6 @@ object Veritas {
   }
 
   class Test extends scala.annotation.ConstantAnnotation {}
+
+  case class InvalidReturnTypeException(msg: String) extends RuntimeException(msg)
 }
