@@ -40,6 +40,10 @@ jobs:
    - name: Run tests
      run: gradle runCoverage -q
 
+   - uses: codecov/codecov-action@v2
+     with:
+       files: coverage.json
+       verbose: true
 
   # Ubuntu workflow, something goes wrong in the test, perhaps fix in the future
   # gradle:
