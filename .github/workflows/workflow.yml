@@ -38,7 +38,7 @@ jobs:
        apt install make nasm gcc -y
 
    - name: Run tests
-     run: gradle runTests
+     run: gradle runCoverage -q
 
 
   # Ubuntu workflow, something goes wrong in the test, perhaps fix in the future

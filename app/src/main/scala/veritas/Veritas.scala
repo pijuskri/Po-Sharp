@@ -16,9 +16,20 @@ import scala.util.{Failure, Success, Try}
 object Veritas {
   private val numOfThreads = 10
   private val chunkSize = 1
-  private val cov = Coverage
+  private var cov: Coverage.type = _
+  private var calculateCoverage = false
 
+  /**
+   * Runs all tests. If the first argument is `coverage`, coverage is calculated and printed.
+   *
+   * @param args Command line arguments.
+   */
   def main(args: Array[String]): Unit = {
+    if (args.isDefinedAt(0) && args.head == "coverage") {
+      calculateCoverage = true
+      cov = Coverage
+    }
+
     var exitCode = 0
 
     time(() => exitCode = RunTests())
@@ -125,7 +136,8 @@ object Veritas {
     pool.awaitTermination(5, TimeUnit.MINUTES)
     println(out)
     println()
-    cov.CalculateCoverage().foreach(println)
+    if (calculateCoverage)
+      cov.CalculateCoverage().foreach(println)
 
     // Delete all files created by writeToFile and the tests
     new File("compiled")
@@ -148,7 +160,8 @@ object Veritas {
     try {
       val parsed = Parser.parseInput(input)
 
-      cov.AddCoverage(parsed)
+      if (calculateCoverage)
+        cov.AddCoverage(parsed)
 
       this.synchronized(Success(ToAssembly.convertMain(parsed)))
     } catch {

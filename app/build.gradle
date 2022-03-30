@@ -48,3 +48,9 @@ task runTests(type: JavaExec) {
     classpath sourceSets.main.runtimeClasspath
     main = "veritas.Veritas"
 }
+
+task runCoverage(type: JavaExec) {
+    classpath sourceSets.main.runtimeClasspath
+    main = "veritas.Veritas"
+    args = ["coverage"]
+}
