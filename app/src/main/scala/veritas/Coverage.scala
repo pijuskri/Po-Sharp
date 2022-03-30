@@ -2,6 +2,7 @@ package veritas
 
 import org.reflections.Reflections
 
+import java.nio.file.{Files, Path}
 import scala.collection.convert.ImplicitConversions._
 import scala.collection.immutable.ListMap
 
@@ -11,10 +12,10 @@ import scala.collection.immutable.ListMap
  */
 object Coverage {
   private val reflections = new Reflections("scala")
-  private var exprs: List[List[(Class[_ <: Expr], String, Int)]] = List()
-
   // Put names of redundant expressions here so they are ignored in the report (such as "Ident")
   private val redundantExprs: List[String] = List()
+  private var exprs: List[List[(Class[_ <: Expr], String, Int)]] = List()
+  private var percentage = -1.0
 
   /**
    * Calculates the case classes the given expression covers and saves it for later.
@@ -72,7 +73,15 @@ object Coverage {
       .map(el => el._1 -> 0)
       .filterNot(el => redundantExprs.contains(el._1))
 
-    ListMap.from((res ++ coverages).toSeq.sortBy(_._2))
+    percentage = ((coverages.size / GetAllExprCaseClasses().size.toDouble) * 100).round
+
+    println(s"==== Covered $percentage% of Expr case classes ====\n")
+
+    val output = ListMap.from((res ++ coverages).toSeq.sortBy(_._2))
+
+    CreateCodeCovReport(output)
+
+    output
   }
 
   /**
@@ -104,4 +113,58 @@ object Coverage {
       .distinct
       .toList
   }
+
+  /**
+   * Creates a CodeCov report and exports it to `coverage.json`.
+   *
+   * @param cov Calculated coverage from [[CalculateCoverage]].
+   */
+  private def CreateCodeCovReport(cov: Map[String, Int]): Unit = {
+    var output: List[ExprCovLine] = List()
+    val txt = Files.readAllLines(Path.of("src/main/scala/scala/Definitions.scala"))
+
+    // Find where the object starts to avoid mismatching stuff with imports
+    // This shouldn't happen because of the regex stuff I later added below but
+    // you never know.
+    val objStart = txt.indexWhere(_.contains("object Expr"))
+
+    cov.foreach(el => output = output :+
+      ExprCovLine(el._1, el._2,
+        txt
+          .drop(objStart)
+          .indexWhere(line => ExtractClassName(line) == el._1) + objStart + 1
+      ))
+
+    val start = "{\"coverage\":{\"app/src/main/scala/scala/Definitions.scala\": {"
+    val end = "}}}"
+    val json = start + output.map(el => s"\"${el.Line}\": ${el.TimesUsed},").mkString.dropRight(1) + end
+
+    try {
+      Files.writeString(Path.of("../coverage.json"), json)
+      println("Coverage report exported successfully!\n")
+    } catch {
+      case e: Exception => println(s"Exporting coverage failed with $e")
+    }
+  }
+
+  /**
+   * Extracts the case class name from any `Definitions.scala` line.
+   *
+   * @param line The line.
+   * @return The case class name.
+   */
+  private def ExtractClassName(line: String): String = {
+    val data = "case class ([a-zA-Z]+)\\(".r.findAllIn(line).matchData.toList
+    if (data.isEmpty) ""
+    else data.get(0).group(1)
+  }
+
+  /**
+   * Helper class.
+   *
+   * @param Expression The [[Expr]] class in question.
+   * @param TimesUsed The amount of times it was used in the tests.
+   * @param Line The line number from `Definitions.scala`.
+   */
+  private case class ExprCovLine(Expression: String, TimesUsed: Int, Line: Int)
 }

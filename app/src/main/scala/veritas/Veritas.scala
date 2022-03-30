@@ -136,8 +136,9 @@ object Veritas {
     pool.awaitTermination(5, TimeUnit.MINUTES)
     println(out)
     println()
+
     if (calculateCoverage)
-      cov.CalculateCoverage().foreach(println)
+      cov.CalculateCoverage()
 
     // Delete all files created by writeToFile and the tests
     new File("compiled")

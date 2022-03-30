@@ -169,3 +169,4 @@ gradle-app.setting
 .classpath
 
 toCompile.txt
+coverage.json
