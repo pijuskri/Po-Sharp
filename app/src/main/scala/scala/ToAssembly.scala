@@ -1,6 +1,8 @@
 package scala
 
+import scala.Expr.GetProperty
 import scala.Type.{UserType, shortS}
+import scala.io.AnsiColor
 
 object ToAssembly {
   val defaultReg = List("rax", "rdi", "rsi", "rdx", "rcx", "r8", "r9", "r10", "r11")
@@ -33,20 +35,22 @@ object ToAssembly {
       declareFunctions(x);
       declareInterfaces(x);
       declareEnums(x)
-      converted += defineFunctions(x.functions);
+      converted += defineFunctions(x.functions.map(y=>(y, Map())), false);
       converted += defineFunctions(x.interfaces.flatMap(intf=>
         intf.functions.map(func=>Expr.Func(intf.name + "_" + func.name, func.argNames, func.retType, func.body)))
+        .map(y=>(y, Map())),
+        false
       );
     }}
-
-    //converted += convert(input, defaultReg, Map() )._1;
+    converted += defineFunctions(lambdas, true);
+    converted += "exception:\nmov rdi, 1\ncall exit\n"
     converted += "format_num:\n        db  \"%d\", 10, 0\n"
     converted += "format_float:\n        db  \"%f\", 10, 0\n"
     converted += "format_string:\n        db  \"%s\", 10, 0\n"
     converted += "format_char:\n        db  \"%c\", 10, 0\n"
     converted += "format_true:\n        db  \"true\", 10, 0\n"
     converted += "format_false:\n        db  \"false\", 10, 0\n"
-    converted += "section .data\nmain_rbp	DQ	0\nmain_rsp	DQ	0\n"
+    //converted += "section .data\nmain_rbp	DQ	0\nmain_rsp	DQ	0\n"
     converted += stringLiterals.mkString
     //converted = converted.split("\n").zipWithIndex.foldLeft("")((acc, v)=> acc +s"\nline${v._2}:\n"+ v._1)
     converted = converted.split("\n").map(x=>if(x.contains(":")) x+"\n" else "   "+x+"\n").mkString
@@ -58,6 +62,7 @@ object ToAssembly {
   var functions: List[FunctionInfo] = List();
   var interfaces: List[InterfaceInfo] = List();
   var enums: List[EnumInfo] = List()
+  var lambdas: List[(Expr.Func, Env)] = List()
   var functionScope: FunctionInfo = FunctionInfo("main", List(), Type.Num());
 
   private def convert(input: Expr, reg: List[String], env: Env): (String, Type) = {
@@ -118,9 +123,12 @@ object ToAssembly {
       case Expr.InstantiateInterface(name, values) => interfaces.find(x=>x.name == name) match {
         case Some(intf) => {
           val array_def = s"mov rdi, ${intf.args.length}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n"
-          val newenv = newVar("self", UserType(name), env)
-          val func_code = interpFunction(name+"_"+name, Expr.Ident("self") +: values, reg, newenv)._1
-          val ret = array_def + setval("self", UserType(name), newenv)._1 + func_code + "pop rax\n";
+          //val newenv = newVar("self", UserType(name), env)
+          //val func_code = interpFunction(name+"_"+name, Expr.Ident("self") +: values, reg, newenv)._1
+          //val ret = array_def + setval("self", UserType(name), newenv)._1 + func_code + "pop rax\n";
+
+          val func_code = interpFunction(name+"_"+name, Expr.Compiled(array_def, UserType(name)) +: values, reg, env)._1
+          val ret = func_code + "pop rax\n";
           (ret, Type.Interface(intf.args, intf.funcs))
         }
         case None => throw new Exception(s"no such interface defined")
@@ -138,7 +146,7 @@ object ToAssembly {
         case (x, valType) => throw new Exception(s"expected a interface, got ${valType}")
       }
       case Expr.CallObjFunc(obj, func) => conv(obj) match {
-        case(code, Type.Interface(props, funcs)) => funcs.find(x=>x.name == func.name) match {
+        case(code, t@Type.Interface(props, funcs)) => funcs.find(x=>x.name == func.name) match {
           case Some(n) => {
             var args = func.args
             //TODO fails if interface has same attributes/functions but different name
@@ -146,16 +154,32 @@ object ToAssembly {
             if(n.args.nonEmpty && n.args.head.name == "self") args = obj +: args
             interpFunction(intfName+"_"+func.name, args, reg, env)
           }
-          case None => throw new Exception(s"no such function")
+          case None => props.find(x=>x.name == func.name) match {
+            case Some(InputVar(_, Type.Function(_,_))) => {
+              //callLambda(Expr.GetProperty(Expr.Compiled(code, t), func.name), func.args, reg, env)
+              callLambda(Expr.GetProperty(obj, func.name), func.args, reg, env)
+            }
+            case None => throw new Exception(s"object has no property or function named $func")
+          }
         }
       }
       case Expr.GetArray(name, index) => getArray(name, index, reg, env);
       case Expr.ArraySize(name) => getArraySize(name, reg, env);
-      case Expr.CallF(name, args) => interpFunction(name, args, reg, env)
+      case Expr.CallF(name, args) => {
+        if(functions.exists(x=>x.name == name)) interpFunction(name, args, reg, env)
+        else if(env.contains(name)) callLambda(Expr.Ident(name), args, reg, env)
+        else throw new Exception(s"unknow identifier $name")
+      }
       //case Expr.Str(value) => (defineString(value, reg), Type.Str())
       case Expr.Str(value) => (defineArrayKnown(value.length, Type.Character(), value.map(x=>Expr.Character(x)).toList, env)._1, Type.Array(Type.Character()))
       case Expr.Character(value) => (s"mov ${reg.head}, ${value.toInt}\n", Type.Character())
-      case Expr.Nothing() => ("", Type.Undefined());
+
+      case Expr.Lambda(args, ret, body) => {
+        val label = "lambda_" + lambdas.size
+        functions = functions :+ FunctionInfo(label, args, ret)
+        lambdas = lambdas :+ (Expr.Func(label, args, ret, body), env)
+        (s"mov ${reg.head}, $label\n", Type.Function(args.map(x=>x.varType), ret))
+      }
       case Expr.Equals(left, right) => {
         val ret = compareExpr(left, right, false, reg, env) + s"sete ${sizeToReg(1, reg.head)}\n"
         (ret, Type.Bool())
@@ -190,6 +214,9 @@ object ToAssembly {
         })
         (ret, Type.Bool())
       }
+
+      case Expr.Nothing() => ("", Type.Undefined());
+      case Expr.Compiled(code, retType) => (code, retType);
       case x => throw new Exception (s"$x is not interpreted yet :(");
     }
     (ret._1, makeUserTypesConcrete(ret._2))
@@ -269,7 +296,12 @@ object ToAssembly {
         }
 
       }
-      case Expr.ThrowException() => "jmp exception\n"
+      case Expr.ThrowException(err) => {
+        val msg = AnsiColor.RED + "RuntimeException: " + err + AnsiColor.RESET
+        val name = s"exception_print_${stringLiterals.length}"
+        stringLiterals = stringLiterals :+ s"$name:\n        db  \"${msg}\", 10, 0\n"
+        s"mov rax, $name\n" + printTemplate("format_string") + "jmp exception\n"
+      }
       case x@Expr.CallF(n, a) => convert(x, reg, env)._1;
       case x@Expr.Block(n) => convert(x, reg, env)._1;
       case x@Expr.CallObjFunc(obj, func) => convert(x, reg, env)._1;
@@ -282,49 +314,7 @@ object ToAssembly {
     //defstring += freeMemory((newenv.toSet diff env.toSet).toMap)
     (defstring, Type.Undefined());
   }
-  /*
-  //TODO improve with boolean operations
-  private def convertCondition(input: Expr, reg: List[String], env: Env, orMode: Boolean, trueLabel: String, falseLabel: String): String = {
-    //def compare(left: Expr, right: Expr): String = binOpTemplate(left, right, "cmp", reg, env)
-    def compare(left: Expr, right: Expr, numeric: Boolean): String = compareExpr(left, right, numeric, reg, env)
-    val newtrueLabel = s"cond_${subconditionCounter}_true"
-    val newfalseLabel = s"cond_${subconditionCounter}_false"
-    val ret = input match {
-      case Expr.True() => if(orMode) s"jmp ${trueLabel}\n" else ""
-      case Expr.False() => if(!orMode) s"jmp ${falseLabel}\n" else ""
-      case Expr.Equals(left, right) => {
-        compare(left, right, false) + ( if(orMode) s"je ${trueLabel}\n" else s"jne ${falseLabel}\n" )
-      }
-      case Expr.LessThan(left, right) => {
-        compare(left, right, true) + ( if(orMode) s"jl ${trueLabel}\n" else s"jge ${falseLabel}\n" )
-      }
-      case Expr.MoreThan(left, right) => {
-        compare(left, right, true) + ( if(orMode) s"jg ${trueLabel}\n" else s"jle ${falseLabel}\n" )
-      }
-      case Expr.Not(cond) => {
-        subconditionCounter += 1
-        convertCondition(cond, reg, env, orMode = orMode, newtrueLabel, newfalseLabel) +
-          s"${newtrueLabel}:\n" + s"jmp ${falseLabel}\n" + s"${newfalseLabel}:\n" + s"jmp ${trueLabel}\n"
-      }
-      case Expr.And(list) => {
-        subconditionCounter += 1;
-        list.foldLeft("")((acc, subcond) => acc + convertCondition(subcond, reg, env, orMode = false, newtrueLabel, newfalseLabel)) +
-          s"${newtrueLabel}:\n" + s"jmp ${trueLabel}\n" + s"${newfalseLabel}:\n" + s"jmp ${falseLabel}\n"
-      }
-      case Expr.Or(list) => {
-        subconditionCounter += 1;
-        list.foldLeft("")((acc, subcond) => acc + convertCondition(subcond, reg, env, orMode = true, newtrueLabel, newfalseLabel)) +
-          s"${newfalseLabel}:\n" + s"jmp ${falseLabel}\n" + s"${newtrueLabel}:\n" + s"jmp ${trueLabel}\n"
-      }
-      case expr => convert(expr, reg, env) match {
-        case (code, Type.Bool()) => compare(expr, Expr.True(), false) + ( if(orMode) s"je ${trueLabel}\n" else s"jne ${falseLabel}\n" )
-        case (_, t) => throw new Exception(s"got type $t inside condition, expected bool")
-      }
-    }
-    ret
-  }
 
-   */
   def compareExpr(left: Expr, right: Expr, numeric: Boolean, reg: List[String], env: Env): String = {
     val leftout = convert(left, reg, env);
     val rightout = convert(right, reg.tail, env);
@@ -385,12 +375,14 @@ object ToAssembly {
    */
   val functionCallReg = List( "rdi", "rsi", "rdx", "rcx", "r8", "r9")
   def fNameSignature(name: String, args: List[Type]):String = name + (if(args.isEmpty) "" else "_") + args.map(x=>shortS(x)).mkString
-  private def defineFunctions(input: List[Expr.Func]): String = {
-    input.map(function => {
+
+  private def defineFunctions(input: List[(Expr.Func, Env)], lambdaMode: Boolean): String = {
+    input.map{ case (function, upperScope) => {
       val info = functions.find(x=>x.name == function.name && x.args==function.argNames).get;
       functionScope = info;
-      var ret = "\n" + s"${fNameSignature(info.name, info.args.map(x=>x.varType))}:\n"
-      if(info.name == "main") ret += "mov [main_rbp], rbp\nmov [main_rsp], rsp\n"
+      val label = if(lambdaMode) info.name else fNameSignature(info.name, info.args.map(x=>x.varType))
+      var ret = "\n" + s"${label}:\n"
+      //if(info.name == "main") ret += "mov [main_rbp], rbp\nmov [main_rsp], rsp\n"
       ret +=
         """ push rbp
           | mov rbp, rsp
@@ -404,17 +396,40 @@ object ToAssembly {
         regArgs = regArgs.tail;
         moveVar
       }).mkString
-      ret += convert(function.body, defaultReg, env)._1
+      ret += convert(function.body, defaultReg, shiftEnvLocations(upperScope) ++ env)._1
       if(info.retType == Type.Undefined()) ret += "leave\nret\n";
       if(info.name == "main") {
         //ret += "exception:\nmov rdi, 1\nmov rbp, [main_rbp]\nmov rsp, [main_rsp]\nmov rdx, [rsp-8]\njmp rdx\n"
-        //ret += "exception:\nmov rax, 1\nmov rbx, 1\nint 0x80\n"
         ret += "mov rax, 0\nleave\nret\n";
-        ret += "exception:\nmov rdi, 1\ncall exit\n"
       }
 
       ret
-    }).mkString
+    }}.mkString
+  }
+  def shiftEnvLocations(env: Env): Env = {
+      env.map(x=> (x._1,
+        Variable(x._2.pointer - 256 - 16 , x._2.varType)
+      ))
+  }
+  def callLambda(input: Expr, args: List[Expr], reg: List[String], env: Env): (String, Type) = convert(input, reg, env) match {
+    case (code, Type.Function(argTypes, retType)) => {
+      val usedReg = defaultReg.filter(x => !reg.contains(x));
+      var ret = usedReg.map(x=>s"push $x\n").mkString
+      ret += code + s"push ${reg.head}\n"
+      if(argTypes.length != args.length) throw new Exception(s"wrong number of arguments: expected ${argTypes.length}, got ${args.length}");
+      val argRet = (args zip argTypes).map{case (arg, argType) => convert(arg, reg, env) match {
+        case (argCode, t) if Type.compare(t, argType) => argCode + s"push ${reg.head}\n"
+        case (_, t) => throw new Exception(s"Wrong argument for function: expected $argType, got $t");
+      }}
+      ret += argRet.mkString
+      ret += args.zipWithIndex.reverse.map{case (arg, index) => s"pop ${functionCallReg(index)}\n"}.mkString
+      ret += s"pop rax\n"
+      ret += s"call rax\n"
+      ret += s"mov ${reg.head}, rax\n"
+      ret += usedReg.reverse.map(x=>s"pop $x\n").mkString
+      (ret, retType)
+    }
+    case (_, x) => throw new Exception(s"Can not call variable of type $x");
   }
   def interpFunction(name: String, args: List[Expr], reg: List[String], env: Env ): (String, Type) = {
     val usedReg = defaultReg.filter(x => !reg.contains(x));
@@ -523,6 +538,7 @@ object ToAssembly {
     case Type.Character() => 1
     case Type.Num() => 8
     case Type.NumFloat() => 8
+    case Type.Function(_,_) => 8
     case Type.T1() => 8
   }
 

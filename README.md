@@ -16,11 +16,16 @@
 *** for contributors-url, forks-url, etc. This is an optional, concise syntax you may use.
 *** https://www.markdownguide.org/basic-syntax/#reference-style-links
 -->
-![](https://github.com/pijuskri/Po-Sharp/logo.png)
+
+<p align="center">
+    <img src='logo.png' alt="">
+</p>
+
 [![Contributors][contributors-shield]][contributors-url]
 [![Issues][issues-shield]][issues-url]
 [![MIT License][license-shield]][license-url]
 [![LinkedIn][linkedin-shield]][linkedin-url]
+[![Build and Test](https://github.com/pijuskri/Po-Sharp/actions/workflows/workflow.yml/badge.svg?branch=master)](https://github.com/pijuskri/Po-Sharp/actions/workflows/workflow.yml)
 
 
 <h2 align="center">Po#</h2>
@@ -48,6 +53,7 @@
       <a href="#getting-started">Getting Started</a>
     </li>
     <li><a href="#prerequisites">Prerequisites</a></li>
+    <li><a href="#language">Language specification</a></li>
     <li><a href="#progress">Progress</a></li>
     <li><a href="#todo">To do</a></li>
   </ol>
@@ -82,10 +88,12 @@ to translate to assembly.
 ### Prerequisites
 <div id="prerequisites"></div>
 
+* [Ubuntu 18.04]() and/or [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)
 * [JDK 13+](https://www.oracle.com/java/technologies/downloads/)
 * [Scala 2.13](https://www.scala-lang.org/download/)
 * [SBT 1.6.1](https://www.scala-sbt.org/download.html)
-* [Ubuntu 18.04]() and/or [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)
+* [NASM](https://www.nasm.us/)
+* [GCC](https://gcc.gnu.org/)
 
 ### Getting Started
 <div id="getting-started"></div>
@@ -106,9 +114,12 @@ With IntelliJ
 With sbt
 * In root directory call `make full`
 
-### Program example
+### Language specification
+<div id="language"></div>
 
-``` 
+#### [Full guide to the language](docs/Guide.md)
+
+```scala 
 //recursive fibonacci implementation
 def main(): int {
   val a = 9;
@@ -121,7 +132,8 @@ def fib(n: int): int {
 }
 ```
 
-[Full guide to the language](docs/Guide.md)
+#### [More examples](docs/examples.txt) 
+
 
 ### Progress
 <div id="progress"></div>
@@ -138,20 +150,20 @@ def fib(n: int): int {
 * Strings
 * Enums
 * Objects
+* runtime exceptions
+* lambda functions
 
 ### To do
 <div id="todo"></div>
 
 #### Major
 
+* multiple files
 * Generics
-* runtime exceptions
 * Object inheritance
-* lambda functions
 * library functions
 * typeof
 * Garbage collector
-* multiple files
 * packages
 * File i/o
 * Optimisation
@@ -183,4 +195,4 @@ def fib(n: int): int {
 [forks-url]: https://github.com/github_username/repo_name/network/members
 [stars-shield]: https://img.shields.io/github/stars/github_username/repo_name.svg?style=for-the-badge
 [stars-url]: https://github.com/github_username/repo_name/stargazers
-[product-screenshot]: images/screenshot.png
+[product-screenshot]: logo.png
