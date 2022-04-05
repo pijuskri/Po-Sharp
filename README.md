@@ -114,6 +114,12 @@ With IntelliJ
 With sbt
 * In root directory call `make full`
 
+[//]: # (TODO Does this still work? Probably a good idea to use gradle instead)
+
+A [testing framework](./app/src/main/scala/veritas) is also included in the project.
+To run the language tests do `gradle runTests`. The documentation can be found
+[here](./app/src/main/scala/veritas/README.md).
+
 ### Language specification
 <div id="language"></div>
 
