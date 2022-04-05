@@ -18,16 +18,29 @@ object Veritas {
   private val chunkSize = 1
   private var cov: Coverage.type = _
   private var calculateCoverage = false
+  private var exportCoverage = false
 
   /**
    * Runs all tests. If the first argument is `coverage`, coverage is calculated and printed.
    *
+   * Command line arguments:
+   * <ul>
+   *   <li>[0] - `coverage`: coverage is calculated and printed</li>
+   *   <li>[1] - `export`: coverage is exported in CodeCov JSON format</li>
+   * </ul>
+   *
+   * Order matters!
+   *
    * @param args Command line arguments.
    */
   def main(args: Array[String]): Unit = {
+    println(args.mkString("Array(", ", ", ")"))
     if (args.isDefinedAt(0) && args.head == "coverage") {
       calculateCoverage = true
       cov = Coverage
+
+      if (args.isDefinedAt(1) && args(1) == "export")
+        exportCoverage = true
     }
 
     var exitCode = 0
@@ -138,7 +151,7 @@ object Veritas {
     println()
 
     if (calculateCoverage)
-      cov.CalculateCoverage()
+      cov.CalculateCoverage(exportCoverage)
 
     // Delete all files created by writeToFile and the tests
     new File("compiled")

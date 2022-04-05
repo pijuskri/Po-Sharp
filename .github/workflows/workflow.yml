@@ -38,7 +38,7 @@ jobs:
        apt install make nasm gcc -y
 
    - name: Run tests
-     run: gradle runCoverage -q
+     run: gradle runCoverage -PextraArgs="export" -q
 
    - uses: codecov/codecov-action@v2
      with:

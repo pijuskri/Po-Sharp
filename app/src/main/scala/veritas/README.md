@@ -62,6 +62,7 @@ Running tests takes quite a bit of time as they need to be compiled and executed
 leverages multithreading to try and combat this.
 
 You can run the tests with `gradle runTests` or run tests + print coverage with `gradle runCoverage`.
+If you want to also generate the CodeCov JSON, run `gradle runCoverage -PextraArgs="export"`
 
 
 ## The Framework Explained

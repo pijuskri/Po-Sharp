@@ -52,5 +52,12 @@ task runTests(type: JavaExec) {
 task runCoverage(type: JavaExec) {
     classpath sourceSets.main.runtimeClasspath
     main = "veritas.Veritas"
-    args = ["coverage"]
+
+    // If `extraArgs` exists, prepend it with "coverage" and set args to the result
+    // else just set args to "coverage"
+    if (project.hasProperty("extraArgs")) {
+        args(["coverage"] + (extraArgs.split(',') as List).flatten())
+    } else {
+        args("coverage")
+    }
 }

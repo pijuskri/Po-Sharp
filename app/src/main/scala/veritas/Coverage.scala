@@ -63,9 +63,10 @@ object Coverage {
   /**
    * Generates a map between each case class and the amount of times they were used in the tests.
    *
+   * @param export True exports a CodeCov JSON report
    * @return Map[ClassName, TimesUsed]
    */
-  def CalculateCoverage(): Map[String, Int] = {
+  def CalculateCoverage(export: Boolean = false): Map[String, Int] = {
     val coverages = SumCoverages(exprs)
 
     val res = GetAllExprCaseClasses()
@@ -79,7 +80,8 @@ object Coverage {
 
     val output = ListMap.from((res ++ coverages).toSeq.sortBy(_._2))
 
-    CreateCodeCovReport(output)
+    if (export)
+      CreateCodeCovReport(output)
 
     output
   }
