@@ -9,8 +9,11 @@ build:
 	nasm -felf64 $(TARGET_FILE).asm && \
 	gcc -O0 -ggdb -no-pie $(TARGET_FILE).o -o $(TARGET_FILE)
 
+build_all:
+	$(bash ./build.sh)
+
 #compile and run asm 
-run: build
+run: build_all
 	compiled/$(TARGET_FILE)
 
 #compile Po# using sbt and then run it, also running the generated .asm
