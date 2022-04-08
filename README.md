@@ -18,7 +18,7 @@
 -->
 
 <p align="center">
-    <img src='logo.png' alt="">
+    <img src='docs/logo.png' alt="">
 </p>
 
 [![Contributors][contributors-shield]][contributors-url]
@@ -116,9 +116,9 @@ With sbt
 
 [//]: # (TODO Does this still work? Probably a good idea to use gradle instead)
 
-A [testing framework](./app/src/main/scala/veritas) is also included in the project.
+A [testing framework](./veritas/src/main/scala/core/) is also included in the project.
 To run the language tests do `gradle runTests`. The documentation can be found
-[here](./app/src/main/scala/veritas/README.md).
+[here](./veritas/src/main/scala/README.md).
 
 ### Language specification
 <div id="language"></div>
@@ -201,4 +201,4 @@ def fib(n: int): int {
 [forks-url]: https://github.com/github_username/repo_name/network/members
 [stars-shield]: https://img.shields.io/github/stars/github_username/repo_name.svg?style=for-the-badge
 [stars-url]: https://github.com/github_username/repo_name/stargazers
-[product-screenshot]: logo.png
+[product-screenshot]: docs/logo.png

@@ -8,4 +8,4 @@
  */
 
 rootProject.name = 'scala'
-include('app')
+include('app', 'veritas')

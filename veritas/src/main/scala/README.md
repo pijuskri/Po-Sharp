@@ -16,7 +16,7 @@ Writing tests is pretty straight forward. For a method to be considered a test i
 - Include the word `test` in the method name
 - Have a return type of `(Boolean, String)`
 
-The [`PoSharp.scala`](./PoSharp.scala) class is created to provide an interface as well as some helper methods to aid in
+The [`PoSharp.scala`](./core/PoSharp.scala) class is created to provide an interface as well as some helper methods to aid in
 writing tests. Do note that the framework considers the last printed value to be the value to check, this means that each
 snippet must have a print statement.
 
@@ -24,7 +24,7 @@ A simple test might look like this;
 
 ```scala
 @Test
-class TestExample {
+class test.TestExample {
   def runTest2(): (Boolean, String) =
     """def main(): int {
          val a = 5;
@@ -41,7 +41,7 @@ not want to use them, you can rewrite the test to:
 
 ```scala
 @Test
-class TestExample {
+class test.TestExample {
   def runTest2(): (Boolean, String) =
     PoSharpScript("""def main(): int {
          val a = 5;
@@ -53,7 +53,7 @@ class TestExample {
 }
 ```
 
-The [`PoSharp.scala`](./PoSharp.scala) file contains thorough documentation on all the different methods that it provides
+The [`PoSharp.scala`](./core/PoSharp.scala) file contains thorough documentation on all the different methods that it provides
 which I will be keeping up to date so be sure to read through the JavaDoc.
 
 ### Running the Tests

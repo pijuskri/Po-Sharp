@@ -1,4 +1,4 @@
-package scala
+package posharp
 
 import java.io.{File, FileWriter}
 import scala.io.Source

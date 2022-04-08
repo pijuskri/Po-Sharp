@@ -1,6 +1,7 @@
-package veritas
+package core
 
 import org.reflections.Reflections
+import posharp.Expr
 
 import java.nio.file.{Files, Path}
 import scala.collection.convert.ImplicitConversions._
@@ -11,7 +12,7 @@ import scala.collection.immutable.ListMap
  * the tests.
  */
 object Coverage {
-  private val reflections = new Reflections("scala")
+  private val reflections = new Reflections(Constants.POSHARP_PACKAGE)
   // Put names of redundant expressions here so they are ignored in the report (such as "Ident")
   private val redundantExprs: List[String] = List()
   private var exprs: List[List[ExprUsages]] = List()
@@ -123,7 +124,8 @@ object Coverage {
    */
   private def CreateCodeCovReport(cov: Map[String, Int]): Unit = {
     var output: List[ExprUsagesLine] = List()
-    val txt = Files.readAllLines(Path.of("src/main/scala/scala/Definitions.scala"))
+
+    val txt = Files.readAllLines(Path.of(s"../${Constants.POSHARP_PATH}Definitions.scala"))
 
     // Find where the object starts to avoid mismatching stuff with imports
     // This shouldn't happen because of the regex stuff I later added below but
@@ -137,7 +139,7 @@ object Coverage {
           .indexWhere(line => ExtractClassName(line) == el._1) + objStart + 1
       ))
 
-    val start = "{\"coverage\":{\"app/src/main/scala/scala/Definitions.scala\": {"
+    val start = s"{\"coverage\":{\"${Constants.POSHARP_PATH}Definitions.scala\": {"
     val end = "}}}"
     val json = start + output.map(el => s"\"${el.Line}\": ${el.TimesUsed},").mkString.dropRight(1) + end
 
