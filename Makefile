@@ -11,6 +11,8 @@ build:
 
 #compile and run asm 
 run: build
+	nasm -felf64 compiled/$(TARGET_FILE).asm
+	gcc -O0 -ggdb -no-pie compiled/$(TARGET_FILE).o -o compiled/$(TARGET_FILE)
 	compiled/$(TARGET_FILE)
 
 #compile Po# using sbt and then run it, also running the generated .asm

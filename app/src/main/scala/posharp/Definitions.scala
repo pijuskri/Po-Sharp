@@ -1,6 +1,6 @@
-package scala
+package posharp
 
-import scala.ToAssembly.FunctionInfo
+import ToAssembly.FunctionInfo
 
 sealed trait Expr
 object Expr{

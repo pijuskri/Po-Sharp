@@ -1,6 +1,7 @@
-package veritas
+package core
 
 import org.reflections.Reflections
+import posharp.Expr
 
 import java.nio.file.{Files, Path}
 import scala.collection.convert.ImplicitConversions._
@@ -11,10 +12,10 @@ import scala.collection.immutable.ListMap
  * the tests.
  */
 object Coverage {
-  private val reflections = new Reflections("scala")
+  private val reflections = new Reflections(Constants.POSHARP_PACKAGE)
   // Put names of redundant expressions here so they are ignored in the report (such as "Ident")
   private val redundantExprs: List[String] = List()
-  private var exprs: List[List[(Class[_ <: Expr], String, Int)]] = List()
+  private var exprs: List[List[ExprUsages]] = List()
   private var percentage = -1.0
 
   /**
@@ -32,7 +33,7 @@ object Coverage {
    * @param expr The expression
    * @return List[ClassName, Count]
    */
-  private def GetExprs(expr: Expr): List[(Class[_ <: Expr], String, Int)] = {
+  private def GetExprs(expr: Expr): List[ExprUsages] = {
     val exprs = GetExprClassNameTuples
 
     val tmp = expr.toString
@@ -47,7 +48,7 @@ object Coverage {
 
     exprs
       .filter(el => tmp.contains(el._2))
-      .map(el => (el._1, el._2, tmp.count(_ == el._2)))
+      .map(el => ExprUsages(el._2, tmp.count(_ == el._2)))
   }
 
   /**
@@ -63,9 +64,10 @@ object Coverage {
   /**
    * Generates a map between each case class and the amount of times they were used in the tests.
    *
+   * @param export True exports a CodeCov JSON report
    * @return Map[ClassName, TimesUsed]
    */
-  def CalculateCoverage(): Map[String, Int] = {
+  def CalculateCoverage(export: Boolean = false): Map[String, Int] = {
     val coverages = SumCoverages(exprs)
 
     val res = GetAllExprCaseClasses()
@@ -79,7 +81,8 @@ object Coverage {
 
     val output = ListMap.from((res ++ coverages).toSeq.sortBy(_._2))
 
-    CreateCodeCovReport(output)
+    if (export)
+      CreateCodeCovReport(output)
 
     output
   }
@@ -93,12 +96,12 @@ object Coverage {
    *       only includes used case classes in the return while the other one includes all of them (the rest just
    *       with a count of zero)
    */
-  private def SumCoverages(args: List[List[(Class[_ <: Expr], String, Int)]]): Map[String, Int] = {
+  private def SumCoverages(args: List[List[ExprUsages]]): Map[String, Int] = {
     args
       .flatten
-      .groupBy(_._2)
-      .map(el => (el._1, el._2.reduce((op, x) => (op._1, op._2, op._3 + x._3))))
-      .map(el => (el._1, el._2._3))
+      .map(el => (el.Expression, el.TimesUsed))
+      .groupBy(_._1)
+      .map(el => el._2.reduce((op, x) => (op._1, op._2 + x._2)))
   }
 
   /**
@@ -120,8 +123,9 @@ object Coverage {
    * @param cov Calculated coverage from [[CalculateCoverage]].
    */
   private def CreateCodeCovReport(cov: Map[String, Int]): Unit = {
-    var output: List[ExprCovLine] = List()
-    val txt = Files.readAllLines(Path.of("src/main/scala/scala/Definitions.scala"))
+    var output: List[ExprUsagesLine] = List()
+
+    val txt = Files.readAllLines(Path.of(s"../${Constants.POSHARP_PATH}Definitions.scala"))
 
     // Find where the object starts to avoid mismatching stuff with imports
     // This shouldn't happen because of the regex stuff I later added below but
@@ -129,13 +133,13 @@ object Coverage {
     val objStart = txt.indexWhere(_.contains("object Expr"))
 
     cov.foreach(el => output = output :+
-      ExprCovLine(el._1, el._2,
+      ExprUsagesLine(el._1, el._2,
         txt
           .drop(objStart)
           .indexWhere(line => ExtractClassName(line) == el._1) + objStart + 1
       ))
 
-    val start = "{\"coverage\":{\"app/src/main/scala/scala/Definitions.scala\": {"
+    val start = s"{\"coverage\":{\"${Constants.POSHARP_PATH}Definitions.scala\": {"
     val end = "}}}"
     val json = start + output.map(el => s"\"${el.Line}\": ${el.TimesUsed},").mkString.dropRight(1) + end
 
@@ -163,8 +167,16 @@ object Coverage {
    * Helper class.
    *
    * @param Expression The [[Expr]] class in question.
-   * @param TimesUsed The amount of times it was used in the tests.
-   * @param Line The line number from `Definitions.scala`.
+   * @param TimesUsed  The amount of times it was used in the tests.
+   * @param Line       The line number from `Definitions.scala`.
    */
-  private case class ExprCovLine(Expression: String, TimesUsed: Int, Line: Int)
+  private case class ExprUsagesLine(Expression: String, TimesUsed: Int, Line: Int)
+
+  /**
+   * Helper class.
+   *
+   * @param Expression The [[Expr]] class in question.
+   * @param TimesUsed  The amount of times it was used in the tests.
+   */
+  private case class ExprUsages(Expression: String, TimesUsed: Int)
 }
