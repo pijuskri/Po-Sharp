@@ -142,7 +142,7 @@ project/plugins/project/
 .cache
 .lib/
 
-/compiled
+**/compiled
 /.bsp
 
 

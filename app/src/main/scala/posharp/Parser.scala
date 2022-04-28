@@ -1,9 +1,9 @@
-package scala
+package posharp
 
 import fastparse.JavaWhitespace._
 import fastparse._
 
-import scala.Expr.GetProperty
+import Expr.GetProperty
 
 object Parser {
   //TODO fix issue when spacing at start of file

@@ -1,13 +1,14 @@
-package veritas
+package core
 
 import org.reflections.Reflections
 import org.reflections.scanners.Scanners.TypesAnnotated
 import org.reflections.util.ConfigurationBuilder
+import posharp.Main.writeToFile
+import posharp.{Parser, ToAssembly}
 
 import java.io.File
 import java.lang.reflect.Method
 import java.util.concurrent.{Executors, TimeUnit}
-import scala.Main.writeToFile
 import scala.io.AnsiColor._
 import scala.reflect.internal.util.ScalaClassLoader
 import scala.sys.process.Process
@@ -18,16 +19,29 @@ object Veritas {
   private val chunkSize = 1
   private var cov: Coverage.type = _
   private var calculateCoverage = false
+  private var exportCoverage = false
 
   /**
    * Runs all tests. If the first argument is `coverage`, coverage is calculated and printed.
    *
+   * Command line arguments:
+   * <ul>
+   * <li>[0] - `coverage`: coverage is calculated and printed</li>
+   * <li>[1] - `export`: coverage is exported in CodeCov JSON format</li>
+   * </ul>
+   *
+   * Order matters!
+   *
    * @param args Command line arguments.
    */
   def main(args: Array[String]): Unit = {
+    println(args.mkString("Array(", ", ", ")"))
     if (args.isDefinedAt(0) && args.head == "coverage") {
       calculateCoverage = true
       cov = Coverage
+
+      if (args.isDefinedAt(1) && args(1) == "export")
+        exportCoverage = true
     }
 
     var exitCode = 0
@@ -138,16 +152,22 @@ object Veritas {
     println()
 
     if (calculateCoverage)
-      cov.CalculateCoverage()
+      cov.CalculateCoverage(exportCoverage)
 
-    // Delete all files created by writeToFile and the tests
+    deleteTestArtifacts()
+
+    exitCode
+  }
+
+  /**
+   * Deletes all files created by writeToFile and the tests.
+   */
+  private def deleteTestArtifacts(): Unit = {
     new File("compiled")
       .listFiles
       .filter(_.isFile)
       .filter(_.getName.contains("test"))
       .foreach(el => el.delete())
-
-    exitCode
   }
 
   /**
@@ -182,7 +202,7 @@ object Veritas {
 
     val tmp = Process(if (IsWindows()) {
       "wsl "
-    } + s"make TARGET_FILE=$fileName" else {
+    } + s"make -f ../Makefile TARGET_FILE=$fileName" else {
       ""
     }).!!
 

@@ -1,7 +1,7 @@
-package scala
+package posharp
 
-import scala.Expr.GetProperty
-import scala.Type.{UserType, shortS}
+import Expr.GetProperty
+import Type.{UserType, shortS}
 import scala.io.AnsiColor
 
 object ToAssembly {

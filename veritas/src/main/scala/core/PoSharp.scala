@@ -1,7 +1,7 @@
-package veritas
+package core
 
 import scala.language.implicitConversions
-import scala.util.{Success, Failure}
+import scala.util.{Failure, Success}
 
 protected trait IPoSharp {
   /**

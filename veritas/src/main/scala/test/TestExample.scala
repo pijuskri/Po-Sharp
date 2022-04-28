@@ -1,9 +1,9 @@
 package test
 
-import veritas.Veritas.Test
-import veritas.PoSharp._
+import core.PoSharp.PoSharpImplicit
+import core.Veritas.Test
+import posharp.Parser.ParseException
 
-import scala.Parser.ParseException
 import scala.language.postfixOps
 
 
@@ -62,7 +62,7 @@ class TestExample {
       .ShouldThrow(new ParseException(""))
 
   def runTestBig(): (Boolean, String) = {
-      """object Dynamic {
+    """object Dynamic {
           size: int;
           allocated: int;
           arr: array[int];
