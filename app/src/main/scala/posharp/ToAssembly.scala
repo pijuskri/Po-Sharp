@@ -6,7 +6,24 @@ import scala.io.AnsiColor
 
 object ToAssembly {
   val defaultReg = List("rax", "rdi", "rsi", "rdx", "rcx", "r8", "r9", "r10", "r11")
-  def convertMain(input: Expr): String = {
+  var ifCounter = 0;
+  var subconditionCounter: Int = 0;
+  var stringLiterals: List[String] = List()
+  var functions: List[FunctionInfo] = List();
+  var interfaces: List[InterfaceInfo] = List();
+  var enums: List[EnumInfo] = List()
+  var lambdas: List[(Expr.Func, Env)] = List()
+  var functionScope: FunctionInfo = FunctionInfo("main", List(), Type.Num());
+
+  def convertMain(input: Expr, currentFile: String, otherFiles: Map[String, Expr.TopLevel]): String = {
+    ifCounter = 0;
+    subconditionCounter = 0;
+    stringLiterals = List()
+    functions = List();
+    interfaces = List();
+    enums = List()
+    lambdas = List()
+    functionScope = FunctionInfo("main", List(), Type.Num());
     /*
     var converted =
       """ global main
@@ -35,6 +52,8 @@ object ToAssembly {
       declareFunctions(x);
       declareInterfaces(x);
       declareEnums(x)
+      converted += exportDeclarations(currentFile)
+      converted += handleImports(x, otherFiles)
       converted += defineFunctions(x.functions.map(y=>(y, Map())), false);
       converted += defineFunctions(x.interfaces.flatMap(intf=>
         intf.functions.map(func=>Expr.Func(intf.name + "_" + func.name, func.argNames, func.retType, func.body)))
@@ -56,14 +75,7 @@ object ToAssembly {
     converted = converted.split("\n").map(x=>if(x.contains(":")) x+"\n" else "   "+x+"\n").mkString
     converted
   }
-  var ifCounter = 0;
-  var subconditionCounter: Int = 0;
-  var stringLiterals: List[String] = List()
-  var functions: List[FunctionInfo] = List();
-  var interfaces: List[InterfaceInfo] = List();
-  var enums: List[EnumInfo] = List()
-  var lambdas: List[(Expr.Func, Env)] = List()
-  var functionScope: FunctionInfo = FunctionInfo("main", List(), Type.Num());
+
 
   private def convert(input: Expr, reg: List[String], env: Env): (String, Type) = {
     val conv = (_input: Expr) => convert(_input, reg, env)
@@ -349,6 +361,58 @@ object ToAssembly {
   private def declareEnums(input: Expr.TopLevel): Unit = {
     enums = input.enums.map(x=>EnumInfo(x.name,x.props))
   }
+  private def handleImports(input: Expr.TopLevel, otherFiles: Map[String, Expr.TopLevel]): String = {
+    input.imports.map(imp=>{
+      if (!otherFiles.contains(imp.file)) throw new Exception(s"file \"${imp.file}\" could not be imported");
+      val top = otherFiles(imp.file)
+
+      val funcsForImport = searchFileDeclarations(top, imp) match {
+        case Expr.Func(name, argnames, retType, code) => {
+          functions = functions :+ FunctionInfo(name, argnames, retType)
+          List(fNameSignature(FunctionInfo(name, argnames, retType)))
+        }
+        case Expr.DefineInterface(name, props, i_functions) => {
+          val intf = InterfaceInfo(name, props, i_functions.map(x=>FunctionInfo(x.name,x.argNames,x.retType)))
+          interfaces = interfaces :+ intf
+          val funcs = addPrefixToFunctions(intf.name,intf.funcs)
+          functions = functions ::: funcs
+          funcs.map(x=>fNameSignature(FunctionInfo(x.name, x.args, x.retType)))
+        }
+      }
+      funcsForImport.map(x=>{
+        val label = imp.file + "_" + x
+        s"extern $label\n" + s"${x}:\njmp $label\n"
+      }).mkString
+      /*
+
+
+      intf.funcs.map(x=>{
+            val label = imp.file + "_" + x.name
+            s"extern ${label}\n" + s"${x.name}:\njmp ${label}\n"
+          }).mkString
+       */
+
+    }).mkString
+  }
+  private def searchFileDeclarations(top: Expr.TopLevel, imp: Expr.Import): Expr = {
+    top.functions.find(x=>x.name == imp.toImport)
+      .orElse(top.functions.find(x=>x.name == imp.toImport))
+      .orElse(top.interfaces.find(x=>x.name == imp.toImport))
+      .orElse(throw new Exception(s"could not import ${imp.toImport} from file \"${imp.file}\""))
+      .orNull
+  }
+  private def exportDeclarations(file: String): String = {
+    (
+      functions
+      //interfaces.flatMap(intf=> addPrefixToFunctions(intf.name, intf.funcs))
+      )
+      .map(info => {
+        val name = fNameSignature(info)
+        s"global ${file}_${name}\n" + s"${file}_${name}:\njmp ${name}\n"
+      }).mkString
+
+  }
+
   def makeUserTypesConcrete(input: Type): Type = input match {
     case UserType(name) => interfaces.find(x=>x.name == name) match {
       case Some(n) => Type.Interface(n.args, n.funcs)
@@ -374,6 +438,7 @@ object ToAssembly {
 
    */
   val functionCallReg = List( "rdi", "rsi", "rdx", "rcx", "r8", "r9")
+  def fNameSignature(info: FunctionInfo): String = fNameSignature(info.name, info.args.map(x=>x.varType))
   def fNameSignature(name: String, args: List[Type]):String = name + (if(args.isEmpty) "" else "_") + args.map(x=>shortS(x)).mkString
 
   private def defineFunctions(input: List[(Expr.Func, Env)], lambdaMode: Boolean): String = {

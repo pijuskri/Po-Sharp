@@ -1,7 +1,7 @@
 #!/bin/bash
 
 mkdir -p compiled && \
-cd compiled/
+cd compiled/ || exit
 
 dir_succeeded=$?
 
@@ -10,8 +10,15 @@ then
     exit 1
 fi
 
-for i in $( cut -d '.' -f 1 <<< "$(ls | grep .asm)" ); 
+files=$( cut -d '.' -f 1 <<< "$(ls | grep .asm)" )
+files_asm=()
+
+for i in $files;
 do
-    nasm -felf64 $i.asm && \
-    gcc -O0 -ggdb -no-pie $i.o -o $i
+    files_asm+=($i.o)
+    nasm -felf64 $i.asm
 done
+
+files="${files_asm[*]}"
+
+gcc -O0 -ggdb -no-pie $files -o "hello"

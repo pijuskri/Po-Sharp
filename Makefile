@@ -1,5 +1,7 @@
 TARGET_FILE = 'hello'
 
+
+
 all: run
 
 #assemble hello.asm
@@ -9,8 +11,11 @@ build:
 	nasm -felf64 $(TARGET_FILE).asm && \
 	gcc -O0 -ggdb -no-pie $(TARGET_FILE).o -o $(TARGET_FILE)
 
+
+#compile all files in directory
+.PHONY: build_all
 build_all:
-	$(bash ./build.sh)
+	bash ./build.sh
 
 #compile and run asm 
 run: build_all

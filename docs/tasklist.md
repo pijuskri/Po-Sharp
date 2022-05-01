@@ -1,15 +1,15 @@
 ##To do
 
-
+* file name in error messages
+* line numbers in compiler
 * make functions use stack instead of registers
 * static variables
 * add prinf
-* infer self in object functions
 * Prevent array deferencing (point to a pointer that points to array)
+* infer self in object functions
 * Add array copy function
 * add method to get all interface arguments/names
 * function reflection(do this by declaring labels in file with strings and var names)
-* line numbers in compiler
 * parser error reporting
 * nested arrays
 * add runtime index checking for arrays

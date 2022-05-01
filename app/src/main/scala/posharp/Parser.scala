@@ -7,16 +7,18 @@ import Expr.GetProperty
 
 object Parser {
   //TODO fix issue when spacing at start of file
-  def topLevel[_: P]: P[Expr.TopLevel] = P(StringIn(" ").? ~ (function | interfaceDef | enumDef).rep(1)).map(x => {
+  def topLevel[_: P]: P[Expr.TopLevel] = P(StringIn(" ").? ~ (function | interfaceDef | enumDef | imports).rep(1)).map(x => {
     var func: List[Expr.Func] = List()
     var intf: List[Expr.DefineInterface] = List()
     var enum: List[Expr.DefineEnum] = List()
+    var imports: List[Expr.Import] = List()
     x.foreach {
       case y@Expr.Func(a, b, c, d) => func = func :+ y
       case y@Expr.DefineInterface(a, b, c) => intf = intf :+ y
       case y@Expr.DefineEnum(a, b) => enum = enum :+ y
+      case y@Expr.Import(a, b) => imports = imports :+ y
     }
-    Expr.TopLevel(func, intf, enum)
+    Expr.TopLevel(func, intf, enum, imports)
   })
 
   def function[_: P]: P[Expr.Func] = P("def " ~/ ident ~ "(" ~/ functionArgs ~ ")" ~/ typeDef.? ~ block).map {
@@ -28,6 +30,8 @@ object Parser {
       Expr.Func(name.name, args, ret, body)
     }
   }
+
+  def imports[_: P]: P[Expr.Import] = P("import " ~/ ident ~ "from" ~ fileName ~ ";").map(x=> Expr.Import(x._1.name, x._2.s))
 
   /*
   def interfaceDef[_: P]: P[Expr.DefineInterface] = P("interface " ~ ident ~/ "{" ~ (ident ~ typeDef).rep(sep = ",") ~ "}").map(props=>
@@ -221,6 +225,7 @@ object Parser {
   })
 
   def str[_: P]: P[Expr.Str] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(x => Expr.Str(x + "\u0000"))
+  def fileName[_: P]: P[Expr.Str] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(x => Expr.Str(x))
 
   def ident[_: P]: P[Expr.Ident] = P(CharIn("a-zA-Z_") ~~ CharsWhileIn("a-zA-Z0-9_", 0)).!.map((input) => {
     Expr.Ident(input)

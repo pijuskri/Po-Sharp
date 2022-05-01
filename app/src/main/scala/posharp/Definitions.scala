@@ -62,7 +62,9 @@ object Expr{
 
   case class Convert(value: Expr, to: Type) extends Expr
 
-  case class TopLevel(functions: List[Func], interfaces: List[DefineInterface], enums: List[DefineEnum]) extends Expr
+  case class TopLevel(functions: List[Func], interfaces: List[DefineInterface], enums: List[DefineEnum], imports: List[Import]) extends Expr
+  case class Import(toImport: String, file: String) extends Expr
+
   case class ThrowException(errorMsg: String) extends Expr
   case class Nothing() extends Expr
   case class Compiled(code: String, raxType: Type) extends Expr
