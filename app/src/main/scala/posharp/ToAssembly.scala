@@ -380,7 +380,7 @@ object ToAssembly {
         }
       }
       funcsForImport.map(x=>{
-        val label = imp.file + "_" + x
+        val label = formatFName(imp.file) + "_" + x
         s"extern $label\n" + s"${x}:\njmp $label\n"
       }).mkString
       /*
@@ -407,10 +407,20 @@ object ToAssembly {
       //interfaces.flatMap(intf=> addPrefixToFunctions(intf.name, intf.funcs))
       )
       .map(info => {
+        val formatFile = formatFName(file)
         val name = fNameSignature(info)
-        s"global ${file}_${name}\n" + s"${file}_${name}:\njmp ${name}\n"
+        s"global ${formatFile}_${name}\n" + s"${formatFile}_${name}:\njmp ${name}\n"
       }).mkString
 
+  }
+
+  /***
+   * Formats file name in a format assembly can understand
+   * @param file name
+   * @return
+   */
+  def formatFName(file: String): String = {
+    file.replace("/", "_")
   }
 
   def makeUserTypesConcrete(input: Type): Type = input match {
