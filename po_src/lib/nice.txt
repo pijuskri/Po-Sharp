@@ -92,6 +92,9 @@ object Dynamic {
         };
         return same;
     }
+    def not_useful() {
+        print("not useful, you're dumb");
+    }
 }
 
 

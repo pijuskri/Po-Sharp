@@ -1,7 +1,7 @@
 package posharp
 import java.io.{File, FileWriter}
 import java.nio.file.Paths
-import scala.io.Source
+import scala.io.{AnsiColor, Source}
 
 package object Constants {
   val FileExtension = ".txt"
@@ -29,9 +29,18 @@ object Main extends App {
   }).toMap
   declarations.foreach(x => {
     val file = x._1
-    println(file)
     val code = x._2
-    val asm = ToAssembly.convertMain(code, file, declarations.filter(x=>x._1 != file));
+    var asm = "";
+
+    try {
+       asm = ToAssembly.convertMain(code, file, declarations.filter(x => x._1 != file));
+    }
+    catch {
+      case x: Exception => {
+        println( AnsiColor.RED + s"Compilation exception in \"$file\": ${x.getMessage}" + AnsiColor.RESET);
+        sys.exit(1);
+      }
+    }
     println("")
     writeCompiled(asm, "compiled/", file)
   })

@@ -81,6 +81,7 @@ object Type {
   case class Bool() extends Type
   //case class Interface(properties: List[InputVar]) extends Type
   case class Interface(properties: List[InputVar], functions: List[FunctionInfo]) extends Type
+  case class StaticInterface(properties: List[InputVar], functions: List[FunctionInfo]) extends Type
   case class Function(args: List[Type], retType: Type) extends Type
   case class T1() extends Type
   case class Enum(el: List[String]) extends Type

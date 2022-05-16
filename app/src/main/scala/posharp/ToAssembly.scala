@@ -100,15 +100,25 @@ object ToAssembly {
         case ((code, Type.Num()), Type.Character()) => (code, valType)
         case ((code, l), r) => throw new Exception(s"cant convert from type ${l} to type $r")
       }
-      case Expr.Ident(name) => {
-        val isStatic = enums.find(x=>x.name == name)
-        if(isStatic.nonEmpty) {
+      /*
+      case Expr.Ident(name) => name match {
+        case _ if enums.exists(x => x.name == name) => {
           val enumInfo = isStatic.get
           ("", Type.Enum(enumInfo.el))
         }
-        else {
+        case _ if interfaces.exists(x=> )
+        case _ => {
           val look = lookup(name, env)
           (s"mov ${reg.head}, ${look._1}\n", look._2.varType)
+        }
+      }
+       */
+      case Expr.Ident(name) => {
+        enums.find(x => x.name == name).orElse(interfaces.find(x=>x.name == name)).orElse(Some(lookup(name, env))) match {
+          case Some(EnumInfo(_, el)) => ("", Type.Enum(el))
+          case Some(InterfaceInfo(_, props, funcs)) => ("", Type.Interface(props, funcs))
+          case Some((code: String, variable: Variable)) => (s"mov ${reg.head}, ${code}\n", variable.varType)
+          case _ => throw new Exception(s"unrecognised identifier $name")
         }
       }
       case Expr.Block(lines) => convertBlock(lines, reg, env);
@@ -153,27 +163,14 @@ object ToAssembly {
           }
           case None => throw new Exception(s"interface ${interfaces.find(x=>x.args == props).get.name} does not have a property ${prop}")
         }
+        //case (code, Type.StaticInterface(props, funcs)) =>
         case (code, Type.Enum(el)) => (s"mov ${reg.head}, 0${el.indexOf(prop)}d\n", Type.Num())
         case (code, Type.Array(a)) if prop == "size" => conv(Expr.ArraySize(obj))
         case (x, valType) => throw new Exception(s"expected a interface, got ${valType}")
       }
       case Expr.CallObjFunc(obj, func) => conv(obj) match {
-        case(code, t@Type.Interface(props, funcs)) => funcs.find(x=>x.name == func.name) match {
-          case Some(n) => {
-            var args = func.args
-            //TODO fails if interface has same attributes/functions but different name
-            val intfName = interfaces.find(x=>x.args == props && x.funcs == funcs).get.name
-            if(n.args.nonEmpty && n.args.head.name == "self") args = obj +: args
-            interpFunction(intfName+"_"+func.name, args, reg, env)
-          }
-          case None => props.find(x=>x.name == func.name) match {
-            case Some(InputVar(_, Type.Function(_,_))) => {
-              //callLambda(Expr.GetProperty(Expr.Compiled(code, t), func.name), func.args, reg, env)
-              callLambda(Expr.GetProperty(obj, func.name), func.args, reg, env)
-            }
-            case None => throw new Exception(s"object has no property or function named $func")
-          }
-        }
+        case(code, t@Type.Interface(props, funcs)) => callObjFunction(obj, func, props, funcs, isStatic = false, reg, env)
+        case(code, Type.StaticInterface(props, funcs)) => callObjFunction(obj, func, props, funcs, isStatic = true, reg, env)
       }
       case Expr.GetArray(name, index) => getArray(name, index, reg, env);
       case Expr.ArraySize(name) => getArraySize(name, reg, env);
@@ -505,6 +502,27 @@ object ToAssembly {
       (ret, retType)
     }
     case (_, x) => throw new Exception(s"Can not call variable of type $x");
+  }
+  def callObjFunction(obj: Expr, func: Expr.CallF, props: List[InputVar], funcs: List[FunctionInfo], isStatic: Boolean, reg: List[String], env: Env): (String, Type) = {
+    funcs.find(x=>x.name == func.name) match {
+      case Some(n) => {
+        var args = func.args
+        //TODO fails if interface has same attributes/functions but different name
+        val intfName = interfaces.find(x=>x.args == props && x.funcs == funcs).get.name
+        if(n.args.nonEmpty && n.args.head.name == "self") {
+          if(isStatic) throw new Exception(s"can not call method $func staticly")
+          else args = obj +: args
+        }
+        interpFunction(intfName+"_"+func.name, args, reg, env)
+      }
+      case None => props.find(x=>x.name == func.name) match {
+        case Some(InputVar(_, Type.Function(_,_))) => {
+          //callLambda(Expr.GetProperty(Expr.Compiled(code, t), func.name), func.args, reg, env)
+          callLambda(Expr.GetProperty(obj, func.name), func.args, reg, env)
+        }
+        case None => throw new Exception(s"object has no property or function named $func")
+      }
+    }
   }
   def interpFunction(name: String, args: List[Expr], reg: List[String], env: Env ): (String, Type) = {
     val usedReg = defaultReg.filter(x => !reg.contains(x));
