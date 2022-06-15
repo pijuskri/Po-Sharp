@@ -23,3 +23,8 @@ tasks:
     output_paths:
       - coverage.json
     command: gradle runCoverage $ARGS
+
+  print:
+    dependencies:
+      - test
+    command: echo $ARGS
