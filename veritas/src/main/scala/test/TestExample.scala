@@ -43,15 +43,15 @@ class TestExample {
       .ShouldBe("-1")
       .Run()
 
-  def runTest5(): (Boolean, String) =
-    """def main(): int {
-         val a = array(1,2,3);
-         a[0] = 5;
-         print(a[0]);
-         return 0;
-       }"""
-      .ShouldBe("5")
-      .Run()
+//  def runTest5(): (Boolean, String) =
+//    """def main(): int {
+//         val a = array(1,2,3);
+//         a[0] = 5;
+//         print(a[0]);
+//         return 0;
+//       }"""
+//      .ShouldBe("5")
+//      .Run()
 
   def runTest6(): (Boolean, String) =
     "def main(): int { val a = 10; print(a[0]); return 0;}"
