@@ -200,11 +200,8 @@ object Veritas {
   def GetOutput(asm: String, fileName: String): String = {
     writeToFile(asm, "compiled/", s"$fileName.asm")
 
-    val tmp = Process(if (IsWindows()) {
-      "wsl "
-    } else {
-      ""
-    } + s"make -f ../Makefile TARGET_FILE=$fileName").!!
+    val prefix = if (IsWindows()) {"wsl "} else {""} 
+    val tmp = Process(prefix + s"make -f ../Makefile TARGET_FILE=$fileName").!!
 
     tmp.split("\n").last.trim
   }
