@@ -17,14 +17,14 @@ tasks:
 
   test:
     environment:
-      ARGS: ''
+      args: ''
     dependencies:
       - install_deps
     output_paths:
       - coverage.json
-    command: gradle runCoverage $ARGS
+    command: gradle runCoverage $args
 
   print:
-    dependencies:
-      - test
-    command: echo $ARGS
+    environment:
+      args: ''
+    command: echo $args
