@@ -20,4 +20,6 @@ tasks:
       ARGS: ''
     dependencies:
       - install_deps
+    output_paths:
+      - coverage.json
     command: gradle runCoverage $ARGS
