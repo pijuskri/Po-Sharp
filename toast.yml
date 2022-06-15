@@ -23,8 +23,3 @@ tasks:
     output_paths:
       - coverage.json
     command: gradle runCoverage $args
-
-  print:
-    environment:
-      args: ''
-    command: echo $args
