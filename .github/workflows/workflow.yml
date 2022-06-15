@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: stepchowfun/toast/.github/actions/toast@main
-        with:
+        env:
           ARGS: -PextraArgs="export" -q
       - uses: codecov/codecov-action@v2
         with:
