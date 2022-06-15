@@ -202,9 +202,9 @@ object Veritas {
 
     val tmp = Process(if (IsWindows()) {
       "wsl "
-    } + s"make -f ../Makefile TARGET_FILE=$fileName" else {
+    } else {
       ""
-    }).!!
+    } + s"make -f ../Makefile TARGET_FILE=$fileName").!!
 
     tmp.split("\n").last.trim
   }
