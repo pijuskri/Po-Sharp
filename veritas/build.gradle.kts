@@ -23,7 +23,6 @@ task("runTests", JavaExec::class) {
     classpath = sourceSets["main"].runtimeClasspath
 
     shouldRunAfter(":app:build")
-    finalizedBy("run")
 }
 
 task("runCoverage", JavaExec::class) {
