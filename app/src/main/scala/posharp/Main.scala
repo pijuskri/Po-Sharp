@@ -56,7 +56,7 @@ object Main extends App {
    */
 
   def writeCompiled(asm: String, directoryPath: String, file: String): Unit = {
-    val flatFile = file.split("/").last + ".asm"
+    val flatFile = file.split("/").last + ".ll"
     writeToFile(asm, directoryPath, flatFile)
   }
 

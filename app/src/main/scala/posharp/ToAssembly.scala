@@ -1,7 +1,7 @@
 package posharp
 
-import Expr.GetProperty
-import Type.{UserType, shortS}
+import posharp.Type.{UserType, shortS}
+
 import scala.io.AnsiColor
 
 object ToAssembly {
@@ -24,55 +24,30 @@ object ToAssembly {
     enums = List()
     lambdas = List()
     functionScope = FunctionInfo("main", List(), Type.Num());
-    /*
-    var converted =
-      """ global main
-        | extern printf
-        | extern calloc
-        | extern free
-        | section .text
-        |main:
-        | sub rsp, 256
-        |""".stripMargin;
-    converted += convert(input, defaultReg, Map() )._1;
-    converted += "add rsp, 256\n"
-    converted += "  mov rax, 0\n  ret\n"
-    converted += "format_num:\n        db  \"%d\", 10, 0"
-    converted
-     */
-    var converted =
-      """ global main
-        | extern printf
-        | extern calloc
-        | extern free
-        | extern exit
-        | section .text
-        |""".stripMargin;
+
+    var converted = "";
+    println(input);
     input match { case x: Expr.TopLevel => {
       declareFunctions(x);
+      /*
       declareInterfaces(x);
       declareEnums(x)
       converted += exportDeclarations(currentFile)
       converted += handleImports(x, otherFiles)
+       */
       converted += defineFunctions(x.functions.map(y=>(y, Map())), false);
+      /*
       converted += defineFunctions(x.interfaces.flatMap(intf=>
         intf.functions.map(func=>Expr.Func(intf.name + "_" + func.name, func.argNames, func.retType, func.body)))
         .map(y=>(y, Map())),
         false
       );
+       */
     }}
-    converted += defineFunctions(lambdas, true);
-    converted += "exception:\nmov rdi, 1\ncall exit\n"
-    converted += "format_num:\n        db  \"%d\", 10, 0\n"
-    converted += "format_float:\n        db  \"%f\", 10, 0\n"
-    converted += "format_string:\n        db  \"%s\", 10, 0\n"
-    converted += "format_char:\n        db  \"%c\", 10, 0\n"
-    converted += "format_true:\n        db  \"true\", 10, 0\n"
-    converted += "format_false:\n        db  \"false\", 10, 0\n"
-    //converted += "section .data\nmain_rbp	DQ	0\nmain_rsp	DQ	0\n"
-    converted += stringLiterals.mkString
-    //converted = converted.split("\n").zipWithIndex.foldLeft("")((acc, v)=> acc +s"\nline${v._2}:\n"+ v._1)
-    converted = converted.split("\n").map(x=>if(x.contains(":")) x+"\n" else "   "+x+"\n").mkString
+    //converted += defineFunctions(lambdas, true);
+    //converted += "exception:\nmov rdi, 1\ncall exit\n"
+    //converted += stringLiterals.mkString
+    //converted = converted.split("\n").map(x=>if(x.contains(":")) x+"\n" else "   "+x+"\n").mkString
     converted
   }
 
@@ -84,13 +59,14 @@ object ToAssembly {
       case (_code, received_type) => throw new Exception(s"got type $received_type, expected ${_type}")
     }
     val ret = input match {
-      case Expr.Num(value) => (s"mov ${reg.head}, 0${value}d\n", Type.Num())
+      case Expr.Num(value) => (s"$value", Type.Num())
       case Expr.NumFloat(value) => {
         (s"mov ${reg.head}, __float64__(${value.toString})\n", Type.NumFloat())
       }
       case Expr.True() => (s"mov ${reg.head}, 1\n", Type.Bool())
       case Expr.False() => (s"mov ${reg.head}, 0\n", Type.Bool())
-      case Expr.Plus(left, right) => aritTemplate(left, right, "add", "addsd", reg, env)
+      case Expr.Plus(left, right) => (s"%result = add i32 ${conv(left)._1}, ${conv(right)._1}\n", Type.Num())
+      //case Expr.Plus(left, right) => aritTemplate(left, right, "add", "addsd", reg, env)
       case Expr.Minus(left, right) => aritTemplate(left, right, "sub", "subsd", reg, env)
       case Expr.Mult(left, right) => aritTemplate(left, right, "mul", "mulsd", reg, env)
       case Expr.Div(left, right) => aritTemplate(left, right, "div", "divsd", reg, env)
@@ -126,22 +102,6 @@ object ToAssembly {
         case (code, Type.Num()) => defineArray(code, elemType, defaultValues, env)
         case (code, x) => throw new Exception(s"not number when defining array size, got input of type $x")
       }
-      /*
-      case Expr.InstantiateInterface(name, values) => interfaces.find(x=>x.name == name) match {
-        case Some(intf) => {
-          var ret = values.zipWithIndex.map{case (entry, index) => {
-            val converted = convert(entry, defaultReg, env);
-            if(converted._2 != intf.args(index).varType) throw new Exception(s"expected type ${intf.args(index).varType}" +
-              s" for interface element ${intf.args(index).name}, but got ${converted._2}")
-            converted._1 + setArrayDirect("[rsp]", index, 8);
-          }}.mkString;
-          val array_def = s"mov rdi, ${intf.args.length}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n"
-          ret = array_def + ret + "pop rax\n";
-          (ret, Type.Interface(intf.args))
-        }
-        case None => throw new Exception(s"no such interface defined")
-      }
-       */
       case Expr.InstantiateInterface(name, values) => interfaces.find(x=>x.name == name) match {
         case Some(intf) => {
           val array_def = s"mov rdi, ${intf.args.length}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n"
@@ -238,10 +198,11 @@ object ToAssembly {
     var extendLines = lines;
     var defstring: String = lines.head match {
       case Expr.SetVal(Expr.Ident(name), value) => {
-        val converted = convert(value, reg, env);
-        val modified = setval(name, converted._2, env)
-        newenv = modified._2
-        converted._1 + modified._1
+        convert(value, reg, env)._1
+        //val converted = convert(value, reg, env);
+        //val modified = setval(name, converted._2, env)
+        //newenv = modified._2
+        //converted._1 + modified._1
       };
       case Expr.SetArray(expr, index, value) => {
         val converted = convert(value, reg, env);
@@ -291,6 +252,8 @@ object ToAssembly {
         ret
       }
       case Expr.Return(in) => {
+        "ret i32 0"
+        /*
         val defInside = (env.keys.toSet diff functionScope.args.map(x=>x.name).toSet);
         //TODO fix issue when 2 variables reference same location
         val free = "" //freeMemory(env.filter(x=>defInside.contains(x._1)))
@@ -302,7 +265,7 @@ object ToAssembly {
             converted._1 + free + "leave\nret\n"
           }
           case None => free + "leave\nret\n";
-        }
+        }*/
 
       }
       case Expr.ThrowException(err) => {
@@ -427,23 +390,7 @@ object ToAssembly {
     }
     case x => x
   }
-  //TODO avoid traversing the same interfaces by creating a list of marking which interfaces are concretely defined
-  /*
-  def traverseTypeTree(input: Type): Type = input match {
-    case UserType(name) => interfaces.find(x=>x.name == name) match {
-      case Some(n) => traverseTypeTree(Type.Interface(n.args, n.funcs)) match {
-        case t@Type.Interface(newargs,f) =>
-          interfaces = interfaces.map(x=>if(x == n) InterfaceInfo(x.name, newargs, x.funcs) else x)
-          t
-      }
-      case _ => throw new Exception (s"no interface of name $name");
-    }
-    case Type.Interface(args,f) => Type.Interface(args.map(x=>InputVar(x.name, traverseTypeTree(x.varType))), f)
-    case Type.Array(valType) => traverseTypeTree(valType)
-    case x => x
-  }
 
-   */
   val functionCallReg = List( "rdi", "rsi", "rdx", "rcx", "r8", "r9")
   def fNameSignature(info: FunctionInfo): String = fNameSignature(info.name, info.args.map(x=>x.varType))
   def fNameSignature(name: String, args: List[Type]):String = name + (if(args.isEmpty) "" else "_") + args.map(x=>shortS(x)).mkString
@@ -452,29 +399,9 @@ object ToAssembly {
     input.map{ case (function, upperScope) => {
       val info = functions.find(x=>x.name == function.name && x.args==function.argNames).get;
       functionScope = info;
-      val label = if(lambdaMode) info.name else fNameSignature(info.name, info.args.map(x=>x.varType))
-      var ret = "\n" + s"${label}:\n"
-      //if(info.name == "main") ret += "mov [main_rbp], rbp\nmov [main_rsp], rsp\n"
-      ret +=
-        """ push rbp
-          | mov rbp, rsp
-          | sub rsp, 256
-          |""".stripMargin;
-      var env: Env = Map()
-      var regArgs = functionCallReg;
-      ret += function.argNames.map(arg => {
-        env = newVar(arg.name, arg.varType, env)
-        val moveVar = s"mov qword ${lookup(arg.name, env)._1}, ${regArgs.head}\n"
-        regArgs = regArgs.tail;
-        moveVar
-      }).mkString
-      ret += convert(function.body, defaultReg, shiftEnvLocations(upperScope) ++ env)._1
-      if(info.retType == Type.Undefined()) ret += "leave\nret\n";
-      if(info.name == "main") {
-        //ret += "exception:\nmov rdi, 1\nmov rbp, [main_rbp]\nmov rsp, [main_rsp]\nmov rdx, [rsp-8]\njmp rdx\n"
-        ret += "mov rax, 0\nleave\nret\n";
-      }
-
+      var ret = s"define i32 @${info.name}() {\n"
+      ret += convert(function.body, defaultReg, Map())._1
+      ret += "\n}"
       ret
     }}.mkString
   }
