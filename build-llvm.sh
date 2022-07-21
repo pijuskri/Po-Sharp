@@ -10,7 +10,8 @@ then
     exit 1
 fi
 
-files=$( cut -d '.' -f 1 <<< "$(ls | grep .ll)" )
+files=$( cut -d '.' -f 1 <<< "$(ls | grep "\.ll")" )
+
 files_asm=()
 
 for i in $files;

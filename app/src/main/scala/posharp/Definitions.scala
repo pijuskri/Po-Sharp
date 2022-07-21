@@ -117,6 +117,14 @@ object Type {
     case Character() => Expr.Character('\u0000');
     case _ => Expr.Nothing();
   }
+  def toLLVM(valType: Type): String = valType match {
+    case Num() => "i32";
+    case NumFloat() => "double";
+    case Character() => "i8"
+    case Bool() => "i1"
+    //case Array(inner) => "[40 x i32]"
+    case Undefined() => "void"
+  }
 }
 case class InputVar(name: String, varType: Type)
 case class ObjVal(name: String, varType: Type, defaultValue: Expr)

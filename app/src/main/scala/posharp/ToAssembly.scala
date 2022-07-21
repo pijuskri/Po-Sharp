@@ -2,10 +2,26 @@ package posharp
 
 import posharp.Type.{UserType, shortS}
 
-import scala.io.AnsiColor
+class Counter {
+  private var counter = 1;
+  private var counterExtra = 0;
+  def next(): String = {
+    val cur = counter;
+    counter += 1;
+    s"%$cur";
+  }
+  def extra(): Int = {
+    counterExtra += 1;
+    counterExtra - 1;
+  }
+  def last(): String = s"%${counter-1}";
+  def reset(): Unit = {
+    counter = 1;
+  }
+}
 
 object ToAssembly {
-  val defaultReg = List("rax", "rdi", "rsi", "rdx", "rcx", "r8", "r9", "r10", "r11")
+  var varc: Counter = new Counter();
   var ifCounter = 0;
   var subconditionCounter: Int = 0;
   var stringLiterals: List[String] = List()
@@ -25,7 +41,11 @@ object ToAssembly {
     lambdas = List()
     functionScope = FunctionInfo("main", List(), Type.Num());
 
-    var converted = "";
+    var converted =
+      """
+        | declare i32 @printf(i8*, ...)
+        | @format_num = private constant [2 x i8] c"%d"
+        |""".stripMargin;
     println(input);
     input match { case x: Expr.TopLevel => {
       declareFunctions(x);
@@ -52,52 +72,51 @@ object ToAssembly {
   }
 
 
-  private def convert(input: Expr, reg: List[String], env: Env): (String, Type) = {
-    val conv = (_input: Expr) => convert(_input, reg, env)
-    val convt = (_input: Expr, _type: Type) => convert(_input, reg, env) match {
+  private def convert(input: Expr, env: Env): (String, Type) = {
+    val conv = (_input: Expr) => convert(_input, env)
+    val convt = (_input: Expr, _type: Type) => convert(_input, env) match {
       case (_code, received_type) if received_type == _type => _code
       case (_code, received_type) => throw new Exception(s"got type $received_type, expected ${_type}")
     }
     val ret = input match {
-      case Expr.Num(value) => (s"$value", Type.Num())
+      case Expr.Num(value) => (s"${varc.next()} = add i32 $value, 0\n", Type.Num())
+      case Expr.Plus(left, right) => aritTemplate(left, right, "add", env)
+      case Expr.Minus(left, right) => aritTemplate(left, right, "sub", env)
+      case Expr.Mult(left, right) => aritTemplate(left, right, "mul", env)
+      case Expr.Div(left, right) => aritTemplate(left, right, "sdiv", env)
+      case Expr.Ident(name) => {
+        enums.find(x => x.name == name).orElse(interfaces.find(x=>x.name == name)).orElse(Some(lookup(name, env))) match {
+          case Some(EnumInfo(_, el)) => ("", Type.Enum(el))
+          case Some(InterfaceInfo(_, props, funcs)) => ("", Type.Interface(props, funcs))
+          case Some((code: String, variable: Variable)) => (code, variable.varType)
+          case _ => throw new Exception(s"unrecognised identifier $name")
+        }
+      }
+      case Expr.True() => (s"${varc.next()} = and i1 1, 1\n", Type.Bool())
+      case Expr.False() => (s"${varc.next()} = and i1 0, 0\n", Type.Bool())
+      case Expr.Equals(left, right) => (compareExpr(left, right, true, "eq", env), Type.Bool())
+      case Expr.LessThan(left, right) => (compareExpr(left, right, true, "slt", env), Type.Bool())
+      case Expr.MoreThan(left, right) => (compareExpr(left, right, true, "sgt", env), Type.Bool())
+      case Expr.Not(left) => {
+        val converted = convt(left, Type.Bool())
+        val loc = varc.last()
+        val ret = converted + s"${varc.next()} = xor i1 $loc, 1\n"
+        (ret, Type.Bool())
+      }
+
+      /*
       case Expr.NumFloat(value) => {
         (s"mov ${reg.head}, __float64__(${value.toString})\n", Type.NumFloat())
       }
-      case Expr.True() => (s"mov ${reg.head}, 1\n", Type.Bool())
-      case Expr.False() => (s"mov ${reg.head}, 0\n", Type.Bool())
-      case Expr.Plus(left, right) => (s"%result = add i32 ${conv(left)._1}, ${conv(right)._1}\n", Type.Num())
-      //case Expr.Plus(left, right) => aritTemplate(left, right, "add", "addsd", reg, env)
-      case Expr.Minus(left, right) => aritTemplate(left, right, "sub", "subsd", reg, env)
-      case Expr.Mult(left, right) => aritTemplate(left, right, "mul", "mulsd", reg, env)
-      case Expr.Div(left, right) => aritTemplate(left, right, "div", "divsd", reg, env)
+
       case Expr.Convert(value, valType: Type) => (convert(value, reg, env), valType) match {
         case ((code, Type.Num()), Type.NumFloat()) => (code + convertToFloat(reg.head), valType)
         case ((code, Type.NumFloat()), Type.Num()) => (code + convertToInt(reg.head), valType)
         case ((code, Type.Num()), Type.Character()) => (code, valType)
         case ((code, l), r) => throw new Exception(s"cant convert from type ${l} to type $r")
       }
-      /*
-      case Expr.Ident(name) => name match {
-        case _ if enums.exists(x => x.name == name) => {
-          val enumInfo = isStatic.get
-          ("", Type.Enum(enumInfo.el))
-        }
-        case _ if interfaces.exists(x=> )
-        case _ => {
-          val look = lookup(name, env)
-          (s"mov ${reg.head}, ${look._1}\n", look._2.varType)
-        }
-      }
-       */
-      case Expr.Ident(name) => {
-        enums.find(x => x.name == name).orElse(interfaces.find(x=>x.name == name)).orElse(Some(lookup(name, env))) match {
-          case Some(EnumInfo(_, el)) => ("", Type.Enum(el))
-          case Some(InterfaceInfo(_, props, funcs)) => ("", Type.Interface(props, funcs))
-          case Some((code: String, variable: Variable)) => (s"mov ${reg.head}, ${code}\n", variable.varType)
-          case _ => throw new Exception(s"unrecognised identifier $name")
-        }
-      }
-      case Expr.Block(lines) => convertBlock(lines, reg, env);
+
+
       case Expr.DefineArray(size, elemType, defaultValues) => conv(size) match {
         case (code, Type.Num()) => defineArray(code, elemType, defaultValues, env)
         case (code, x) => throw new Exception(s"not number when defining array size, got input of type $x")
@@ -149,22 +168,7 @@ object ToAssembly {
         lambdas = lambdas :+ (Expr.Func(label, args, ret, body), env)
         (s"mov ${reg.head}, $label\n", Type.Function(args.map(x=>x.varType), ret))
       }
-      case Expr.Equals(left, right) => {
-        val ret = compareExpr(left, right, false, reg, env) + s"sete ${sizeToReg(1, reg.head)}\n"
-        (ret, Type.Bool())
-      }
-      case Expr.LessThan(left, right) => {
-        val ret = compareExpr(left, right, true, reg, env) + s"setl ${sizeToReg(1, reg.head)}\n"
-        (ret, Type.Bool())
-      }
-      case Expr.MoreThan(left, right) => {
-        val ret = compareExpr(left, right, true, reg, env) + s"setg ${sizeToReg(1, reg.head)}\n"
-        (ret, Type.Bool())
-      }
-      case Expr.Not(left) => {
-        val ret = convt(left, Type.Bool()) + s"xor ${reg.head}, 1\n"
-        (ret, Type.Bool())
-      }
+
       case Expr.And(l) => {
         val reg1 = sizeToReg(1, reg.head)
         val reg2 = sizeToReg(1, reg.tail.head)
@@ -186,24 +190,32 @@ object ToAssembly {
 
       case Expr.Nothing() => ("", Type.Undefined());
       case Expr.Compiled(code, retType) => (code, retType);
+       */
+      case Expr.Block(lines) => convertBlock(lines, env);
       case x => throw new Exception (s"$x is not interpreted yet :(");
     }
     (ret._1, makeUserTypesConcrete(ret._2))
   }
   //TODO add line awareness for error reporting
-  private def convertBlock(lines: List[Expr], reg: List[String], env: Env): (String, Type) = {
-    val conv = (_input: Expr) => convert(_input, reg, env)
+  private def convertBlock(lines: List[Expr], env: Env): (String, Type) = {
+    val conv = (_input: Expr) => convert(_input, env)
     if(lines.isEmpty) return ("", Type.Undefined());
     var newenv = env;
     var extendLines = lines;
     var defstring: String = lines.head match {
       case Expr.SetVal(Expr.Ident(name), value) => {
-        convert(value, reg, env)._1
-        //val converted = convert(value, reg, env);
-        //val modified = setval(name, converted._2, env)
-        //newenv = modified._2
-        //converted._1 + modified._1
+        //val look = lookup(name, env)
+        val converted = convertLoc(value, env);
+        //if(look._2.varType != converted._2) throw new Exception(s"mismatch when assigning value" +
+        //  s" to variable $name, expected ${look._2.varType}, but got ${converted._2}")
+        val set = s"store ${Type.toLLVM(converted._2)} ${converted._3}, ${Type.toLLVM(converted._2)}* %$name\n"
+        converted._1 + set;
       };
+      case Expr.DefVal(Expr.Ident(name), varType) => {
+        newenv = newVar(name, varType, newenv);
+        s"%$name = alloca ${Type.toLLVM(varType)}\n"
+      }
+      /*
       case Expr.SetArray(expr, index, value) => {
         val converted = convert(value, reg, env);
         val arr = setArray(expr, index, converted._2, env)
@@ -220,8 +232,7 @@ object ToAssembly {
         }
         case (x, valType) => throw new Exception(s"expected a interface, got ${valType}")
       }
-      case Expr.DefVal(Expr.Ident(name), varType) => newenv = newVar(name, varType, newenv); ""
-      case Expr.Print(toPrint) => printInterp(toPrint, env);
+
       case Expr.If(condition, ifTrue, ifFalse) => {
         def compare(left: Expr, right: Expr, numeric: Boolean): String = compareExpr(left, right, numeric, reg, env)
         val trueLabel = s"if_${ifCounter}_true"
@@ -251,6 +262,15 @@ object ToAssembly {
         ifCounter += 1;
         ret
       }
+      case Expr.ThrowException(err) => {
+        val msg = AnsiColor.RED + "RuntimeException: " + err + AnsiColor.RESET
+        val name = s"exception_print_${stringLiterals.length}"
+        stringLiterals = stringLiterals :+ s"$name:\n        db  \"${msg}\", 10, 0\n"
+        s"mov rax, $name\n" + printTemplate("format_string") + "jmp exception\n"
+      }
+      case x@Expr.CallF(n, a) => convert(x, reg, env)._1;
+      case x@Expr.CallObjFunc(obj, func) => convert(x, reg, env)._1;
+       */
       case Expr.Return(in) => {
         "ret i32 0"
         /*
@@ -268,28 +288,21 @@ object ToAssembly {
         }*/
 
       }
-      case Expr.ThrowException(err) => {
-        val msg = AnsiColor.RED + "RuntimeException: " + err + AnsiColor.RESET
-        val name = s"exception_print_${stringLiterals.length}"
-        stringLiterals = stringLiterals :+ s"$name:\n        db  \"${msg}\", 10, 0\n"
-        s"mov rax, $name\n" + printTemplate("format_string") + "jmp exception\n"
-      }
-      case x@Expr.CallF(n, a) => convert(x, reg, env)._1;
-      case x@Expr.Block(n) => convert(x, reg, env)._1;
-      case x@Expr.CallObjFunc(obj, func) => convert(x, reg, env)._1;
+      case Expr.Print(toPrint) => printInterp(toPrint, env);
+      case x@Expr.Block(n) => convert(x, env)._1;
       case Expr.ExtendBlock(n) => extendLines = extendLines.head +: n ::: extendLines.tail;""
       case _ => throw new Exception(lines.head.toString + " should not be in block lines")
     }
     if(extendLines.tail.nonEmpty) {
-      defstring += convertBlock(extendLines.tail, defaultReg, newenv)._1
+      defstring += convertBlock(extendLines.tail, newenv)._1
     }
-    //defstring += freeMemory((newenv.toSet diff env.toSet).toMap)
+
     (defstring, Type.Undefined());
   }
 
-  def compareExpr(left: Expr, right: Expr, numeric: Boolean, reg: List[String], env: Env): String = {
-    val leftout = convert(left, reg, env);
-    val rightout = convert(right, reg.tail, env);
+  def compareExpr(left: Expr, right: Expr, numeric: Boolean, comp: String, env: Env): String = {
+    val leftout = convertLoc(left, env);
+    val rightout = convertLoc(right, env);
     (leftout._2, rightout._2) match {
       case (Type.Bool(), Type.Bool()) if !numeric => ;
       case (Type.Num(), Type.Num()) => ;
@@ -297,8 +310,9 @@ object ToAssembly {
       case (Type.Character(), Type.Character()) => ;
       case (t1, t2) => throw new Exception(s"can not compare types of $t1 and $t2")
     }
-    leftout._1 + rightout._1 + s"cmp ${reg.head}, ${reg.tail.head}\n"
+    leftout._1 + rightout._1 + s"${varc.next()} = icmp $comp ${Type.toLLVM(leftout._2)} ${leftout._3}, ${rightout._3}\n"
   }
+
   private def declareFunctions(input: Expr.TopLevel): Unit = {
     functions = input.functions.map(x=> FunctionInfo(x.name, x.argNames, x.retType))
   }
@@ -391,7 +405,6 @@ object ToAssembly {
     case x => x
   }
 
-  val functionCallReg = List( "rdi", "rsi", "rdx", "rcx", "r8", "r9")
   def fNameSignature(info: FunctionInfo): String = fNameSignature(info.name, info.args.map(x=>x.varType))
   def fNameSignature(name: String, args: List[Type]):String = name + (if(args.isEmpty) "" else "_") + args.map(x=>shortS(x)).mkString
 
@@ -399,12 +412,13 @@ object ToAssembly {
     input.map{ case (function, upperScope) => {
       val info = functions.find(x=>x.name == function.name && x.args==function.argNames).get;
       functionScope = info;
-      var ret = s"define i32 @${info.name}() {\n"
-      ret += convert(function.body, defaultReg, Map())._1
+      var ret = s"define ${Type.toLLVM(info.retType)} @${info.name}() {\n"
+      ret += convert(function.body, Map())._1
       ret += "\n}"
       ret
     }}.mkString
   }
+  /*
   def shiftEnvLocations(env: Env): Env = {
       env.map(x=> (x._1,
         Variable(x._2.pointer - 256 - 16 , x._2.varType)
@@ -490,7 +504,9 @@ object ToAssembly {
       case None => {println(functions.find(x=>x.name == name).map(x=>x.args).mkString);throw new Exception(s"no overload of function $name matches argument list $argInputTypes")};
     }
   }
+   */
   //Maybe remove type assingmed after fact(causes issues when type is unknown in compile time)
+  /*
   def setval(name: String, raxType: Type, env: Env): (String, Env) = {
     val look = lookup(name, env);
     var newenv = env;
@@ -503,21 +519,8 @@ object ToAssembly {
 
     (s"mov qword ${look._1}, rax\n", newenv)
   }
-  //TODO add runtime index checking
-  /*
-  def setArray(name: String, index: Expr, raxType: Type, env: Env): (String, Env) = (lookup(name, env), convert(index, defaultReg, env)) match {
-    case ((varLoc, Variable(loc, Type.Array(elemType))), (indexCode, indexType)) => {
-      var newenv = env;
-      if(elemType != raxType) {
-        if(elemType == Type.Undefined()) newenv = env.map(x=>if(x._1==name) (x._1, Variable(x._2.pointer, Type.Array(raxType))) else x)
-        else throw new Exception(s"trying to set array element of type ${elemType} to $raxType")
-      }
-      if(indexType != Type.Num()) throw new Exception(s"wrong index for array, got $indexType")
-      ("push rax\n" + indexCode + s"mov rdi, ${varLoc}\n" + "pop rsi\n" + s"mov [rdi+8+rax*8], rsi\n", newenv)
-    }
-  }
-
    */
+  /*
   def setArray(arr: Expr, index: Expr, raxType: Type, env: Env): String = (convert(arr, defaultReg, env), convert(index, defaultReg, env)) match {
     case ((arrCode, Type.Array(elemType)), (indexCode, indexType)) => {
       if(elemType != raxType) throw new Exception(s"trying to set array element of type ${elemType} to $raxType")
@@ -591,10 +594,10 @@ object ToAssembly {
     s"mov ${reg.head}, $label\n"
   }
    */
-
+  */
   def lookup(tofind: String, env: Env): (String, Variable) = {
     val ret = lookupOffset(tofind, env)
-    (s"[rbp-${ret.pointer}]", ret)
+    (s"${varc.next()} = load ${Type.toLLVM(ret.varType)}, ${Type.toLLVM(ret.varType)}* %$tofind\n", ret)
   }
   def lookupOffset(tofind: String, env: Env): Variable = env.get(tofind) match {
     case Some(v) => v
@@ -602,10 +605,10 @@ object ToAssembly {
   }
   def newVar(name: String, varType: Type, env: Env) : Env = {
     if(env.contains(name)) throw new Exception(s"variable \"${name}\" already defined")
-    val newOffset: Int = if(env.isEmpty) 0 else env.values.toList.map(x=>x.pointer).max
-    env + (name -> Variable(newOffset + 8, varType))
+    env + (name -> Variable(varType))
   }
 
+  /*
   def floatTemplate (codeLeft: String, codeRight: String, command: String, reg: List[String]): (String, Type) = {
     val ret = codeLeft + codeRight + s"movq xmm0, ${reg.head}\n" + s"movq xmm1, ${reg.tail.head}\n" +
       s"${command} xmm0, xmm1\n" + s"movq ${reg.head}, xmm0\n"
@@ -624,63 +627,78 @@ object ToAssembly {
     leftout + rightout + s"${command} ${reg.tail.head}\n";
   }
    */
-  def intBinOpTemplate(codeLeft: String, codeRight: String, command: String, reg: List[String]): (String, Type) = {
-    (codeLeft + codeRight + s"${command} ${reg.head}, ${reg.tail.head}\n", Type.Num());
+   */
+  def convertLoc(input: Expr, env: Env): (String, Type, String) = {
+    val ret = convert(input, env)
+    (ret._1, ret._2, varc.last())
   }
-  def intmulTemplate(codeLeft: String, codeRight: String, command: String, reg: List[String]): (String, Type) = {
+  def intBinOpTemplate(codeLeft: String, vLeft: String, codeRight: String, vRight: String, command: String): (String, Type) = {
+    (codeLeft + codeRight + s"${varc.next()} = $command i32 $vLeft, $vRight\n", Type.Num());
+  }
+  def floatBinOpTemplate(codeLeft: String, vLeft: String, codeRight: String, vRight: String, command: String): (String, Type) = {
+    (codeLeft + codeRight + s"${varc.next()} = f$command double $vLeft, $vRight\n", Type.Num());
+  }
+  /*
+  def intmulTemplate(codeLeft: String, codeRight: String, command: String): (String, Type) = {
     (codeLeft + codeRight + s"${command} ${reg.tail.head}\n", Type.Num());
   }
-  def aritTemplate(left: Expr, right: Expr, commandInt: String, commandFloat: String, reg: List[String], env: Env): (String, Type) = {
-    (convert(left, reg, env), convert(right, reg.tail, env)) match {
-      case ((codeLeft, Type.Num()), (codeRight, Type.Num())) =>
-        if(commandInt == "add" || commandInt == "sub") intBinOpTemplate(codeLeft, codeRight, commandInt, reg)
-        else intmulTemplate(codeLeft, codeRight, commandInt, reg)
-      case ((codeLeft, Type.NumFloat()), (codeRight, Type.NumFloat())) => floatTemplate(codeLeft, codeRight, commandFloat, reg)
-      case ((codeLeft, Type.Num()), (codeRight, Type.NumFloat())) => floatTemplate(codeLeft + convertToFloat(reg.head), codeRight, commandFloat, reg)
-      case ((codeLeft, Type.NumFloat()), (codeRight, Type.Num())) => floatTemplate(codeLeft, codeRight + convertToFloat(reg.tail.head), commandFloat, reg)
-      case ((codeLeft, typeLeft), (codeRight, typeRight)) => throw new Exception(s"can't perform arithmetic on operands of types ${typeLeft} and ${typeRight}");
+   */
+  def aritTemplate(left: Expr, right: Expr, command: String, env: Env): (String, Type) = {
+    (convertLoc(left, env), convertLoc(right, env)) match {
+      case ((codeLeft, Type.Num(), vLeft), (codeRight, Type.Num(), vRight)) =>
+        intBinOpTemplate(codeLeft, vLeft, codeRight, vRight, command)
+      case ((codeLeft, Type.Num(), vLeft), (codeRight, Type.Num(), vRight)) =>
+        if(command == "sdiv") intBinOpTemplate(codeLeft, vLeft, codeRight, vRight, "fdiv")
+        else intBinOpTemplate(codeLeft, vLeft, codeRight, vRight, command)
+      //case ((codeLeft, Type.Num()), (codeRight, Type.NumFloat())) => floatTemplate(codeLeft + convertToFloat(reg.head), codeRight, commandFloat, reg)
+      //case ((codeLeft, Type.NumFloat()), (codeRight, Type.Num())) => floatTemplate(codeLeft, codeRight + convertToFloat(reg.tail.head), commandFloat, reg)
+      case ((codeLeft, typeLeft, x), (codeRight, typeRight, y)) => throw new Exception(s"can't perform arithmetic on operands of types ${typeLeft} and ${typeRight}");
     }
   }
+  /*
   def convertToFloat(reg: String): String = {
     s"cvtsi2sd xmm0, ${reg}\n" + s"movq ${reg}, xmm0\n"
   }
   def convertToInt(reg: String): String = {
     s"movq xmm0, ${reg}\n" + s"cvtsd2si ${reg}, xmm0\n"
   }
+  */
+
   def printTemplate(format: String): String = {
-    "mov rdi, " + format +
-      """
-        |mov rsi, rax
-        |xor rax, rax
-        |call printf
-        |""".stripMargin
+    s"%call.${varc.extra()} = call i32 (i8*, ...) @printf(i8* getelementptr inbounds" +
+      s" ([2 x i8], [2 x i8]* @$format, i32 0, i32 0), i32 ${varc.last()})\n"
   }
   def printInterp(toPrint: Expr, env: Env): String = {
-    val converted = convert(toPrint, defaultReg, env)
+    val converted = convert(toPrint, env)
     ifCounter+=1
     converted._2 match {
       case Type.Num() => converted._1 + printTemplate("format_num");
+      /*
       case Type.NumFloat() => converted._1 + "movq xmm0, rax\n" + "mov rdi, format_float\n" + "mov rax, 1\n" + "call printf\n"
       //case (Type.Str) => converted._1 + printTemplate("format_string");
       case Type.Bool() => converted._1 + s"cmp rax, 0\nje bool_${ifCounter}\n" + printTemplate("format_true") +
         s"jmp boole_${ifCounter}\nbool_${ifCounter}:\n" + printTemplate("format_false") + s"boole_${ifCounter}:\n";
       case Type.Character() => converted._1 + printTemplate("format_char");
       case Type.Array(Type.Character()) => converted._1 + "add rax, 8\n" + printTemplate("format_string");
+       */
       case _ => throw new Exception(s"input of type ${converted._2} not recognized in print")
     }
   }
   //TODO runtime memory garbage collection, currently only pointers on the stack are handled
+  /*
   def freeMemory(env: Env): String = env.foldLeft("")((acc, entry) => entry._2.varType match {
     case Type.Array(arrType) => acc + s"mov rdi, [rbp-${entry._2.pointer}]\n" + "call free\n";
     //case Type.Interface(args) => acc + s"mov rdi, [rbp-${entry._2.pointer}]\n" + "call free\n";
     case _ => acc
   })
 
+   */
+
   type Env = Map[String, Variable]
   case class FunctionInfo(name: String, args: List[InputVar], retType: Type)
   //case class InterfaceInfo(name: String, args: List[InputVar])
   case class InterfaceInfo(name: String, args: List[InputVar], funcs: List[FunctionInfo])
   case class EnumInfo(name: String, el: List[String])
-  case class Variable(pointer: Int, varType: Type)
+  case class Variable(varType: Type)
 }
 
