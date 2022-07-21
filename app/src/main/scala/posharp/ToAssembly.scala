@@ -5,9 +5,10 @@ import posharp.Type.{UserType, shortS}
 class Counter {
   private var counter = 1;
   private var counterExtra = 0;
+  private var paused = false;
   def next(): String = {
     val cur = counter;
-    counter += 1;
+    if(!paused) counter += 1;
     s"%$cur";
   }
   def extra(): Int = {
@@ -17,6 +18,9 @@ class Counter {
   def last(): String = s"%${counter-1}";
   def reset(): Unit = {
     counter = 1;
+  }
+  def pauseToggle(): Unit = {
+    paused = !paused;
   }
 }
 
@@ -41,10 +45,23 @@ object ToAssembly {
     lambdas = List()
     functionScope = FunctionInfo("main", List(), Type.Num());
 
+    /*
+    converted += "format_num:\n        db  \"%d\", 10, 0\n"
+    converted += "format_float:\n        db  \"%f\", 10, 0\n"
+    converted += "format_string:\n        db  \"%s\", 10, 0\n"
+    converted += "format_char:\n        db  \"%c\", 10, 0\n"
+    converted += "format_true:\n        db  \"true\", 10, 0\n"
+    converted += "format_false:\n        db  \"false\", 10, 0\n"
+     */
     var converted =
       """
         | declare i32 @printf(i8*, ...)
-        | @format_num = private constant [2 x i8] c"%d"
+        | @format_num = private constant [3 x i8] c"%d\00"
+        | @format_float = private constant [3 x i8] c"%f\00"
+        | @format_string = private constant [3 x i8] c"%s\00"
+        | @format_char = private constant [3 x i8] c"%c\00"
+        | @format_false = private constant [7 x i8] c"false\0A\00"
+        | @format_true = private constant [7 x i8] c"true\0A\00\00"
         |""".stripMargin;
     println(input);
     input match { case x: Expr.TopLevel => {
@@ -204,16 +221,31 @@ object ToAssembly {
     var extendLines = lines;
     var defstring: String = lines.head match {
       case Expr.SetVal(Expr.Ident(name), value) => {
-        //val look = lookup(name, env)
+        val look = lookupOffset(name, env)
         val converted = convertLoc(value, env);
-        //if(look._2.varType != converted._2) throw new Exception(s"mismatch when assigning value" +
-        //  s" to variable $name, expected ${look._2.varType}, but got ${converted._2}")
+        if(look.varType != converted._2) throw new Exception(s"mismatch when assigning value" +
+          s" to variable $name, expected ${look.varType}, but got ${converted._2}")
         val set = s"store ${Type.toLLVM(converted._2)} ${converted._3}, ${Type.toLLVM(converted._2)}* %$name\n"
         converted._1 + set;
       };
       case Expr.DefVal(Expr.Ident(name), varType) => {
         newenv = newVar(name, varType, newenv);
         s"%$name = alloca ${Type.toLLVM(varType)}\n"
+      }
+      case Expr.If(condition, ifTrue, ifFalse) => {
+        def compare(left: Expr, right: Expr, numeric: Boolean): String = compareExpr(left, right, numeric, "eq", env)
+        val trueLabel = s"if_${ifCounter}_true"
+        val falseLabel = s"if_${ifCounter}_false"
+        val endLabel = s"if_${ifCounter}_end"
+        ifCounter += 1;
+        val cond = convertType(condition, env) match {
+          case Type.Bool() => compare(condition, Expr.True(), false)
+          case t => throw new Exception(s"got type $t inside condition, expected bool")
+        }
+        val ret = cond + s"br i1 ${varc.last()}, label %$trueLabel, label %$falseLabel\n" +
+          s"${trueLabel}:\n" + convert(ifTrue, env)._1 + s"br label %$endLabel\n" + s"${falseLabel}:\n" +
+          convert(ifFalse, env)._1 + s"br label %$endLabel\n" + s"$endLabel:\n"
+        ret
       }
       /*
       case Expr.SetArray(expr, index, value) => {
@@ -233,21 +265,7 @@ object ToAssembly {
         case (x, valType) => throw new Exception(s"expected a interface, got ${valType}")
       }
 
-      case Expr.If(condition, ifTrue, ifFalse) => {
-        def compare(left: Expr, right: Expr, numeric: Boolean): String = compareExpr(left, right, numeric, reg, env)
-        val trueLabel = s"if_${ifCounter}_true"
-        val falseLabel = s"if_${ifCounter}_false"
-        val endLabel = s"if_${ifCounter}_end"
-        ifCounter += 1;
-        val cond = convert(condition, reg, env) match {
-          case (code, Type.Bool()) => compare(condition, Expr.True(), false) + s"jne ${falseLabel}\n"
-          case (_, t) => throw new Exception(s"got type $t inside condition, expected bool")
-        }
-        //convertCondition(condition, reg, env, orMode = false, trueLabel, falseLabel)
-        val ret = cond + s"${trueLabel}:\n" + convert(ifTrue, reg, env)._1 +
-          s"jmp ${endLabel}\n" + s"${falseLabel}:\n" + convert(ifFalse, reg, env)._1 + s"${endLabel}:\n"
-        ret
-      }
+
       case Expr.While(condition, execute) => {
         def compare(left: Expr, right: Expr, numeric: Boolean): String = compareExpr(left, right, numeric, reg, env)
         val startLabel = s"while_${ifCounter}_start"
@@ -632,6 +650,12 @@ object ToAssembly {
     val ret = convert(input, env)
     (ret._1, ret._2, varc.last())
   }
+  def convertType(input: Expr, env: Env): Type = {
+    varc.pauseToggle()
+    val ret = convert(input, env)._2
+    varc.pauseToggle()
+    ret
+  }
   def intBinOpTemplate(codeLeft: String, vLeft: String, codeRight: String, vRight: String, command: String): (String, Type) = {
     (codeLeft + codeRight + s"${varc.next()} = $command i32 $vLeft, $vRight\n", Type.Num());
   }
@@ -664,17 +688,18 @@ object ToAssembly {
   }
   */
 
-  def printTemplate(format: String): String = {
+  def printTemplate(format: String, ty: String): String = {
     s"%call.${varc.extra()} = call i32 (i8*, ...) @printf(i8* getelementptr inbounds" +
-      s" ([2 x i8], [2 x i8]* @$format, i32 0, i32 0), i32 ${varc.last()})\n"
+      s" ([3 x i8], [3 x i8]* @$format, i32 0, i32 0), $ty ${varc.last()})\n"
   }
   def printInterp(toPrint: Expr, env: Env): String = {
     val converted = convert(toPrint, env)
     ifCounter+=1
     converted._2 match {
-      case Type.Num() => converted._1 + printTemplate("format_num");
+      case Type.Num() => converted._1 + printTemplate("format_num", "i32");
+      case Type.Bool() => converted._1 + printTemplate("format_num", "i1");
+      case Type.NumFloat() => converted._1 + printTemplate("format_float", "double");
       /*
-      case Type.NumFloat() => converted._1 + "movq xmm0, rax\n" + "mov rdi, format_float\n" + "mov rax, 1\n" + "call printf\n"
       //case (Type.Str) => converted._1 + printTemplate("format_string");
       case Type.Bool() => converted._1 + s"cmp rax, 0\nje bool_${ifCounter}\n" + printTemplate("format_true") +
         s"jmp boole_${ifCounter}\nbool_${ifCounter}:\n" + printTemplate("format_false") + s"boole_${ifCounter}:\n";
