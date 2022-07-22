@@ -16,6 +16,7 @@ class Counter {
     counterExtra - 1;
   }
   def last(): String = s"%${counter-1}";
+  def secondLast(): String = s"%${counter-2}";
   def reset(): Unit = {
     counter = 1;
   }
@@ -56,14 +57,17 @@ object ToAssembly {
     var converted =
       """
         | declare i32 @printf(i8*, ...)
+        | declare i64* @calloc(i32, i32)
         | @format_num = private constant [3 x i8] c"%d\00"
         | @format_float = private constant [3 x i8] c"%f\00"
         | @format_string = private constant [3 x i8] c"%s\00"
         | @format_char = private constant [3 x i8] c"%c\00"
         | @format_false = private constant [7 x i8] c"false\0A\00"
         | @format_true = private constant [7 x i8] c"true\0A\00\00"
+        | %Type.array.double = type {i32, double*}
+        | %Type.array.i32 = type {i32, i32*}
+        | %Type.array.i8 = type {i32, i8*}
         |""".stripMargin;
-    println(input);
     input match { case x: Expr.TopLevel => {
       declareFunctions(x);
       /*
@@ -97,6 +101,7 @@ object ToAssembly {
     }
     val ret = input match {
       case Expr.Num(value) => (s"${varc.next()} = add i32 $value, 0\n", Type.Num())
+      case Expr.NumFloat(value) => (s"${varc.next()} = fadd double $value, 0.0\n", Type.NumFloat())
       case Expr.Plus(left, right) => aritTemplate(left, right, "add", env)
       case Expr.Minus(left, right) => aritTemplate(left, right, "sub", env)
       case Expr.Mult(left, right) => aritTemplate(left, right, "mul", env)
@@ -111,9 +116,9 @@ object ToAssembly {
       }
       case Expr.True() => (s"${varc.next()} = and i1 1, 1\n", Type.Bool())
       case Expr.False() => (s"${varc.next()} = and i1 0, 0\n", Type.Bool())
-      case Expr.Equals(left, right) => (compareExpr(left, right, true, "eq", env), Type.Bool())
-      case Expr.LessThan(left, right) => (compareExpr(left, right, true, "slt", env), Type.Bool())
-      case Expr.MoreThan(left, right) => (compareExpr(left, right, true, "sgt", env), Type.Bool())
+      case Expr.Equals(left, right) => (compareExpr(left, right, true, "eq", "oeq", env), Type.Bool())
+      case Expr.LessThan(left, right) => (compareExpr(left, right, true, "slt", "olt", env), Type.Bool())
+      case Expr.MoreThan(left, right) => (compareExpr(left, right, true, "sgt", "ogt", env), Type.Bool())
       case Expr.Not(left) => {
         val converted = convt(left, Type.Bool())
         val loc = varc.last()
@@ -121,11 +126,53 @@ object ToAssembly {
         (ret, Type.Bool())
       }
 
-      /*
-      case Expr.NumFloat(value) => {
-        (s"mov ${reg.head}, __float64__(${value.toString})\n", Type.NumFloat())
+      case Expr.And(l) => {
+        var andLoc = varc.next();
+        val ret = l.foldLeft(s"$andLoc = and i1 1, 1\n")((acc, v) => convertLoc(v, env) match {
+          case (code, Type.Bool(), loc) =>{
+            val ret = acc + code + s"${varc.next()} = and i1 $andLoc, $loc\n"
+            andLoc = varc.last()
+            ret
+          }
+          case (_, t, _) => throw new Exception(s"expected bool in and, got $t")
+        })
+        (ret, Type.Bool())
       }
+      case Expr.Or(l) => {
+        var andLoc = varc.next();
+        val ret = l.foldLeft(s"$andLoc = or i1 0, 0\n")((acc, v) => convertLoc(v, env) match {
+          case (code, Type.Bool(), loc) =>{
+            val ret = acc + code + s"${varc.next()} = or i1 $andLoc, $loc\n"
+            andLoc = varc.last()
+            ret
+          }
+          case (_, t, _) => throw new Exception(s"expected bool in and, got $t")
+        })
+        (ret, Type.Bool())
+      }
+      case Expr.DefineArray(size, elemType, defaultValues) => conv(size) match {
+        case (code, Type.Num()) => defineArray(code, elemType, defaultValues, env)
+        case (_, x) => throw new Exception(s"not number when defining array size, got input of type $x")
+      }
+      case Expr.GetArray(name, index) => getArray(name, index, env);
+      case Expr.ArraySize(name) => getArraySize(name, env);
 
+      case Expr.GetProperty(obj, prop) => convertType(obj, env) match {
+        /*
+        case(code, Type.Interface(props, funcs)) => props.find(x=>x.name == prop) match {
+          case Some(n) => {
+            val ret = code + getArrayDirect(reg.head, props.indexOf(n), 8, reg)
+            (ret, n.varType)
+          }
+          case None => throw new Exception(s"interface ${interfaces.find(x=>x.args == props).get.name} does not have a property ${prop}")
+        }
+        //case (code, Type.StaticInterface(props, funcs)) =>
+        case (code, Type.Enum(el)) => (s"mov ${reg.head}, 0${el.indexOf(prop)}d\n", Type.Num())
+         */
+        case Type.Array(a) if prop == "size" => conv(Expr.ArraySize(obj))
+        case valType => throw new Exception(s"expected a interface, got ${valType}")
+      }
+      /*
       case Expr.Convert(value, valType: Type) => (convert(value, reg, env), valType) match {
         case ((code, Type.Num()), Type.NumFloat()) => (code + convertToFloat(reg.head), valType)
         case ((code, Type.NumFloat()), Type.Num()) => (code + convertToInt(reg.head), valType)
@@ -134,10 +181,7 @@ object ToAssembly {
       }
 
 
-      case Expr.DefineArray(size, elemType, defaultValues) => conv(size) match {
-        case (code, Type.Num()) => defineArray(code, elemType, defaultValues, env)
-        case (code, x) => throw new Exception(s"not number when defining array size, got input of type $x")
-      }
+
       case Expr.InstantiateInterface(name, values) => interfaces.find(x=>x.name == name) match {
         case Some(intf) => {
           val array_def = s"mov rdi, ${intf.args.length}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n"
@@ -151,25 +195,13 @@ object ToAssembly {
         }
         case None => throw new Exception(s"no such interface defined")
       }
-      case Expr.GetProperty(obj, prop) => conv(obj) match {
-        case(code, Type.Interface(props, funcs)) => props.find(x=>x.name == prop) match {
-          case Some(n) => {
-            val ret = code + getArrayDirect(reg.head, props.indexOf(n), 8, reg)
-            (ret, n.varType)
-          }
-          case None => throw new Exception(s"interface ${interfaces.find(x=>x.args == props).get.name} does not have a property ${prop}")
-        }
-        //case (code, Type.StaticInterface(props, funcs)) =>
-        case (code, Type.Enum(el)) => (s"mov ${reg.head}, 0${el.indexOf(prop)}d\n", Type.Num())
-        case (code, Type.Array(a)) if prop == "size" => conv(Expr.ArraySize(obj))
-        case (x, valType) => throw new Exception(s"expected a interface, got ${valType}")
-      }
+
       case Expr.CallObjFunc(obj, func) => conv(obj) match {
         case(code, t@Type.Interface(props, funcs)) => callObjFunction(obj, func, props, funcs, isStatic = false, reg, env)
         case(code, Type.StaticInterface(props, funcs)) => callObjFunction(obj, func, props, funcs, isStatic = true, reg, env)
       }
-      case Expr.GetArray(name, index) => getArray(name, index, reg, env);
-      case Expr.ArraySize(name) => getArraySize(name, reg, env);
+
+
       case Expr.CallF(name, args) => {
         if(functions.exists(x=>x.name == name)) interpFunction(name, args, reg, env)
         else if(env.contains(name)) callLambda(Expr.Ident(name), args, reg, env)
@@ -185,29 +217,9 @@ object ToAssembly {
         lambdas = lambdas :+ (Expr.Func(label, args, ret, body), env)
         (s"mov ${reg.head}, $label\n", Type.Function(args.map(x=>x.varType), ret))
       }
-
-      case Expr.And(l) => {
-        val reg1 = sizeToReg(1, reg.head)
-        val reg2 = sizeToReg(1, reg.tail.head)
-        val ret = l.foldLeft(s"mov ${reg.head}, 1\n")((acc, v) => convert(v, reg.tail, env) match {
-          case (code, Type.Bool()) => acc + code + s"and ${reg1}, ${reg2}\n" //cmp ${reg1}, 1\nsete $reg1\n
-          case (_, t) => throw new Exception(s"expected bool in and, got $t")
-        })
-        (ret, Type.Bool())
-      }
-      case Expr.Or(l) => {
-        val reg1 = sizeToReg(1, reg.head)
-        val reg2 = sizeToReg(1, reg.tail.head)
-        val ret = l.foldLeft(s"mov ${reg.head}, 0\n")((acc, v) => convert(v, reg.tail, env) match {
-          case (code, Type.Bool()) => acc + code + s"or ${reg1}, ${reg2}\n"
-          case (_, t) => throw new Exception(s"expected bool in and, got $t")
-        })
-        (ret, Type.Bool())
-      }
-
+       */
       case Expr.Nothing() => ("", Type.Undefined());
       case Expr.Compiled(code, retType) => (code, retType);
-       */
       case Expr.Block(lines) => convertBlock(lines, env);
       case x => throw new Exception (s"$x is not interpreted yet :(");
     }
@@ -233,7 +245,8 @@ object ToAssembly {
         s"%$name = alloca ${Type.toLLVM(varType)}\n"
       }
       case Expr.If(condition, ifTrue, ifFalse) => {
-        def compare(left: Expr, right: Expr, numeric: Boolean): String = compareExpr(left, right, numeric, "eq", env)
+        def compare(left: Expr, right: Expr, numeric: Boolean): String =
+          compareExpr(left, right, numeric, "eq", "oeq", env)
         val trueLabel = s"if_${ifCounter}_true"
         val falseLabel = s"if_${ifCounter}_false"
         val endLabel = s"if_${ifCounter}_end"
@@ -247,12 +260,25 @@ object ToAssembly {
           convert(ifFalse, env)._1 + s"br label %$endLabel\n" + s"$endLabel:\n"
         ret
       }
+      case Expr.While(condition, execute) => {
+        def compare(left: Expr, right: Expr, numeric: Boolean): String =
+          compareExpr(left, right, numeric, "eq", "oeq", env)
+        val startLabel = s"while_${ifCounter}_start"
+        val trueLabel = s"while_${ifCounter}_true"
+        val endLabel = s"while_${ifCounter}_end"
+        val cond = convertType(condition, env) match {
+          case Type.Bool() => compare(condition, Expr.True(), false) +
+            s"br i1 ${varc.last()}, label %${trueLabel}, label %${endLabel}\n"
+          case t => throw new Exception(s"got type $t inside condition, expected bool")
+        }
+        val ret = s"br label %${startLabel}\n" + s"${startLabel}:\n" + cond + s"${trueLabel}:\n" +
+          convert(execute, env)._1 + s"br label %${startLabel}\n" + s"${endLabel}:\n"
+        ifCounter += 1;
+        ret
+      }
+      case Expr.SetArray(expr, index, value) => setArray(expr, index, value, env)
       /*
-      case Expr.SetArray(expr, index, value) => {
-        val converted = convert(value, reg, env);
-        val arr = setArray(expr, index, converted._2, env)
-        converted._1 + arr
-      };
+
       case Expr.SetInterfaceProp(intf, prop, valueRaw) => convert(intf, reg.tail, env) match {
         case(code, Type.Interface(props,f)) => props.find(x=>x.name == prop) match {
           case Some(n) => conv(valueRaw) match {
@@ -263,22 +289,6 @@ object ToAssembly {
           case None => throw new Exception(s"interface ${interfaces.find(x=>x.args == props).get.name} does not have a property ${prop}")
         }
         case (x, valType) => throw new Exception(s"expected a interface, got ${valType}")
-      }
-
-
-      case Expr.While(condition, execute) => {
-        def compare(left: Expr, right: Expr, numeric: Boolean): String = compareExpr(left, right, numeric, reg, env)
-        val startLabel = s"while_${ifCounter}_start"
-        val trueLabel = s"while_${ifCounter}_true"
-        val endLabel = s"while_${ifCounter}_end"
-        val cond = convert(condition, reg, env) match {
-          case (code, Type.Bool()) => compare(condition, Expr.True(), false) + s"jne ${endLabel}\n"
-          case (_, t) => throw new Exception(s"got type $t inside condition, expected bool")
-        }
-        val ret = s"${startLabel}:\n" + cond + s"${trueLabel}:\n" + convert(execute, reg, env)._1 +
-          s"jmp ${startLabel}\n" + s"${endLabel}:\n"
-        ifCounter += 1;
-        ret
       }
       case Expr.ThrowException(err) => {
         val msg = AnsiColor.RED + "RuntimeException: " + err + AnsiColor.RESET
@@ -318,17 +328,20 @@ object ToAssembly {
     (defstring, Type.Undefined());
   }
 
-  def compareExpr(left: Expr, right: Expr, numeric: Boolean, comp: String, env: Env): String = {
+  def compareExpr(left: Expr, right: Expr, numeric: Boolean, comp: String, fcomp: String, env: Env): String = {
     val leftout = convertLoc(left, env);
     val rightout = convertLoc(right, env);
+    var isFloat = false;
     (leftout._2, rightout._2) match {
       case (Type.Bool(), Type.Bool()) if !numeric => ;
       case (Type.Num(), Type.Num()) => ;
-      case (Type.NumFloat(), Type.NumFloat()) => ;
+      case (Type.NumFloat(), Type.NumFloat()) => isFloat = true;
       case (Type.Character(), Type.Character()) => ;
       case (t1, t2) => throw new Exception(s"can not compare types of $t1 and $t2")
     }
-    leftout._1 + rightout._1 + s"${varc.next()} = icmp $comp ${Type.toLLVM(leftout._2)} ${leftout._3}, ${rightout._3}\n"
+    val cmp = if (isFloat) "fcmp" else "icmp"
+    val compKey = if (isFloat) fcomp else comp;
+    leftout._1 + rightout._1 + s"${varc.next()} = $cmp $compKey ${Type.toLLVM(leftout._2)} ${leftout._3}, ${rightout._3}\n"
   }
 
   private def declareFunctions(input: Expr.TopLevel): Unit = {
@@ -539,28 +552,7 @@ object ToAssembly {
   }
    */
   /*
-  def setArray(arr: Expr, index: Expr, raxType: Type, env: Env): String = (convert(arr, defaultReg, env), convert(index, defaultReg, env)) match {
-    case ((arrCode, Type.Array(elemType)), (indexCode, indexType)) => {
-      if(elemType != raxType) throw new Exception(s"trying to set array element of type ${elemType} to $raxType")
-      if(indexType != Type.Num()) throw new Exception(s"wrong index for array, got $indexType")
-      "push rax\n" + arrCode + "push rax\n" + indexCode + "pop rdi\n" + "pop rsi\n" + s"mov [rdi+8+rax*8], rsi\n"
-    }
-  }
-  def getArray(arr: Expr, index: Expr, reg: List[String], env: Env): (String, Type) = (convert(arr, reg, env), convert(index, reg, env)) match {
-    case ((code, Type.Array( arrType)), (indexCode, indexType)) => {
-      if(indexType != Type.Num()) throw new Exception(s"wrong index for array, got $indexType")
-      val size = arraySizeFromType(arrType);
-      (code + s"push ${reg.head}\n" + indexCode + s"mov ${reg.tail.head}, ${reg.head}\n" +
-        s"pop ${reg.head}\n" + s"mov ${sizeToReg(size, reg.head)}, [${reg.head}+8+${reg.tail.head}*$size]\n", arrType)
-    }
-    case ((code, varType), l) => throw new Exception(s"trying to access variable ${arr} as an array, has type $varType")
-  }
-  def getArraySize(arr: Expr, reg: List[String], env: Env): (String, Type) = convert(arr, reg, env) match {
-    case (code, Type.Array(arrType)) => {
-      (code + getArrayDirect(reg.head, 0, 8, reg), Type.Num())
-    }
-    case (code, varType) => throw new Exception(s"trying to access variable ${arr} as an array, has type $varType")
-  }
+
   //TODO not safe when default values use rdi
   def setArrayDirect(code: String, index: Int, size: Int): String = {
     s"mov rdi, ${code}\n" + s"mov [rdi+${index*size}], ${sizeToReg(size, "rax")}\n"
@@ -587,21 +579,7 @@ object ToAssembly {
     defineArray(s"mov rax, 0${size}d\n", setElemType, defaultValues, env)
   }
   //TODO use available registers or save, not rax
-  def defineArray(size: String, setElemType:Type, defaultValues: List[Expr], env: Env): (String, Type) = {
-    var elemType: Type = setElemType;
-    var ret = defaultValues.zipWithIndex.map{case (entry, index) => {
-      val converted = convert(entry, defaultReg, env)
-      if(elemType == Type.Undefined()) elemType = converted._2;
-      else if(converted._2 != elemType) throw new Exception(s"array elements are of different types")
-      converted._1 + setArrayDirect("[rsp]", skipArrSize(index, arraySizeFromType(elemType)), arraySizeFromType(elemType));
-    }}.mkString;
-    val array_elem_size = arraySizeFromType(elemType);
-    val array_def = size + "push rax\n" + "add rax, 1\n" + s"mov rdi, rax\n" + s"mov rsi, ${array_elem_size}\n" + "call calloc\n" + "push rax\n"
-    ret = array_def + ret;
-    ret += "pop r9\npop rax\n" + setArrayDirect("[rsp-16]", 0, 8)
-    ret += "mov rax, r9\n"
-    (ret, Type.Array(elemType))
-  }
+
   def skipArrSize(index: Int, size: Int): Int = index + (8/size)
   /*
   def defineString(value: String, reg: List[String]): String = {
@@ -613,6 +591,94 @@ object ToAssembly {
   }
    */
   */
+  def getArrayPointerIndex(arrType: Type, arrLoc: String, indexLoc: String): String = {
+    val Tsig = Type.toLLVM(arrType)
+    val arrTC = s"%Type.array.$Tsig"
+
+    var ret = "";
+    ret += s"${varc.next()} = getelementptr $arrTC, $arrTC* $arrLoc, i32 0, i32 1\n"
+    val arrStructLoc = varc.last()
+    ret += s"${varc.next()} = getelementptr inbounds $Tsig*, $Tsig** ${arrStructLoc}, i32 $indexLoc\n"
+    val arrElemLoc = varc.last()
+    ret += s"${varc.next()} = load $Tsig*, $Tsig** ${arrElemLoc}\n"
+    ret
+  }
+  def getArray(arr: Expr, index: Expr, env: Env): (String, Type) = (convertLoc(arr, env), convertLoc(index, env)) match {
+    case ((code, Type.Array(arrType), arrLoc), (indexCode, indexType, indexLoc)) => {
+      if(indexType != Type.Num()) throw new Exception(s"wrong index for array, got $indexType");
+      val Tsig = Type.toLLVM(arrType)
+
+      var ret = code + indexCode;
+      ret += getArrayPointerIndex(arrType, arrLoc, indexLoc)
+      ret += s"${varc.next()} = load $Tsig, $Tsig* ${varc.secondLast()}\n"
+      (ret, arrType)
+    }
+    case ((_, varType, _), _) => throw new Exception(s"trying to access variable ${arr} as an array, has type $varType")
+  }
+  def setArray(arr: Expr, index: Expr, newVal: Expr, env: Env): String =
+    (convertLoc(arr, env), convertLoc(index, env), convertLoc(newVal, env)) match {
+      case ((code, Type.Array(arrType), arrLoc), (indexCode, indexType, indexLoc), (valCode, valType, valLoc)) => {
+        if(arrType != valType) throw new Exception(s"trying to set array element of type ${arrType} to $valType");
+        if(indexType != Type.Num()) throw new Exception(s"wrong index for array, got $indexType");
+        val Tsig = Type.toLLVM(arrType)
+
+        var ret = code + indexCode + valCode;
+        ret += getArrayPointerIndex(arrType, arrLoc, indexLoc)
+        ret += s"store $Tsig $valLoc, $Tsig* ${varc.last()}\n"
+        ret
+    }
+  }
+  def getArraySize(arr: Expr, env: Env): (String, Type) = convertLoc(arr, env) match {
+    case (code, Type.Array(arrType), loc) => {
+      val Tsig = Type.toLLVM(arrType)
+      val arrTC = s"%Type.array.$Tsig"
+
+      val ret = code +
+        s"${varc.next()} = getelementptr $arrTC, $arrTC* $loc, i32 0, i32 0\n" +
+        s"${varc.next()} = load $Tsig, $Tsig* ${varc.secondLast()}\n"
+      (ret, Type.Num())
+    }
+    case (_, varType, _) => throw new Exception(s"trying to access variable ${arr} as an array, has type $varType")
+  }
+
+  def defineArray(size: String, setElemType:Type, defaultValues: List[Expr], env: Env): (String, Type) = {
+    var elemType: Type = setElemType;
+    val array_elem_size = arraySizeFromType(elemType);
+    val Tsig = Type.toLLVM(elemType)
+    val arrTC = s"%Type.array.$Tsig"
+    var ret = size;
+    val sizeLoc = varc.last()
+    ret += s"${varc.next()} = call i64* (i32, i32) @calloc(i32 $sizeLoc, i32 $array_elem_size)\n";
+    ret += s"${varc.next()} = bitcast i64* ${varc.secondLast()} to $Tsig*"
+    val arrLoc = varc.last()
+    val sizeStructPointer = s"%arr.size.${varc.extra()}"
+    val arrStructPointer = s"%arr.arr.${varc.extra()}"
+    ret += s"${varc.next()} = alloca $arrTC\n"
+    val structLoc = varc.last()
+
+    ret += s"${sizeStructPointer} = getelementptr $arrTC, $arrTC* $structLoc, i32 0, i32 0\n"
+    ret += s"store i32 $sizeLoc, i32* ${sizeStructPointer}\n"
+    ret += s"${arrStructPointer} = getelementptr $arrTC, $arrTC* $structLoc, i32 0, i32 1\n"
+    ret += s"store $Tsig* $arrLoc, $Tsig** ${arrStructPointer}\n"
+    /*
+    var ret = defaultValues.zipWithIndex.map{case (entry, index) => {
+      val converted = convert(entry, defaultReg, env)
+      if(elemType == Type.Undefined()) elemType = converted._2;
+      else if(converted._2 != elemType) throw new Exception(s"array elements are of different types")
+      converted._1 + setArrayDirect("[rsp]", skipArrSize(index, arraySizeFromType(elemType)), arraySizeFromType(elemType));
+    }}.mkString;
+     */
+    (ret, Type.Array(elemType))
+  }
+  def arraySizeFromType(valtype: Type): Int = valtype match {
+    case Type.Undefined() => 8
+    case Type.Character() => 1
+    case Type.Num() => 8
+    case Type.NumFloat() => 8
+    case Type.Function(_,_) => 8
+    case Type.T1() => 8
+  }
+
   def lookup(tofind: String, env: Env): (String, Variable) = {
     val ret = lookupOffset(tofind, env)
     (s"${varc.next()} = load ${Type.toLLVM(ret.varType)}, ${Type.toLLVM(ret.varType)}* %$tofind\n", ret)
@@ -626,26 +692,6 @@ object ToAssembly {
     env + (name -> Variable(varType))
   }
 
-  /*
-  def floatTemplate (codeLeft: String, codeRight: String, command: String, reg: List[String]): (String, Type) = {
-    val ret = codeLeft + codeRight + s"movq xmm0, ${reg.head}\n" + s"movq xmm1, ${reg.tail.head}\n" +
-      s"${command} xmm0, xmm1\n" + s"movq ${reg.head}, xmm0\n"
-    (ret, Type.NumFloat());
-  }
-
-  def binOpTemplate(left: Expr, right: Expr, command: String, reg: List[String], env: Env): String = {
-    val leftout = convert(left, reg, env)._1;
-    val rightout = convert(right, reg.tail, env)._1;
-    leftout + rightout + s"${command} ${reg.head}, ${reg.tail.head}\n";
-  }
-  /*
-  def mulTemplate(left: Expr, right: Expr, command: String, reg: List[String], env: Env): String = {
-    val leftout = convert(left, reg, env)._1;
-    val rightout = convert(right, reg.tail, env)._1;
-    leftout + rightout + s"${command} ${reg.tail.head}\n";
-  }
-   */
-   */
   def convertLoc(input: Expr, env: Env): (String, Type, String) = {
     val ret = convert(input, env)
     (ret._1, ret._2, varc.last())
@@ -660,20 +706,16 @@ object ToAssembly {
     (codeLeft + codeRight + s"${varc.next()} = $command i32 $vLeft, $vRight\n", Type.Num());
   }
   def floatBinOpTemplate(codeLeft: String, vLeft: String, codeRight: String, vRight: String, command: String): (String, Type) = {
-    (codeLeft + codeRight + s"${varc.next()} = f$command double $vLeft, $vRight\n", Type.Num());
+    (codeLeft + codeRight + s"${varc.next()} = f$command double $vLeft, $vRight\n", Type.NumFloat());
   }
-  /*
-  def intmulTemplate(codeLeft: String, codeRight: String, command: String): (String, Type) = {
-    (codeLeft + codeRight + s"${command} ${reg.tail.head}\n", Type.Num());
-  }
-   */
+
   def aritTemplate(left: Expr, right: Expr, command: String, env: Env): (String, Type) = {
     (convertLoc(left, env), convertLoc(right, env)) match {
       case ((codeLeft, Type.Num(), vLeft), (codeRight, Type.Num(), vRight)) =>
         intBinOpTemplate(codeLeft, vLeft, codeRight, vRight, command)
-      case ((codeLeft, Type.Num(), vLeft), (codeRight, Type.Num(), vRight)) =>
-        if(command == "sdiv") intBinOpTemplate(codeLeft, vLeft, codeRight, vRight, "fdiv")
-        else intBinOpTemplate(codeLeft, vLeft, codeRight, vRight, command)
+      case ((codeLeft, Type.NumFloat(), vLeft), (codeRight, Type.NumFloat(), vRight)) =>
+        if(command == "sdiv") floatBinOpTemplate(codeLeft, vLeft, codeRight, vRight, "div")
+        else floatBinOpTemplate(codeLeft, vLeft, codeRight, vRight, command)
       //case ((codeLeft, Type.Num()), (codeRight, Type.NumFloat())) => floatTemplate(codeLeft + convertToFloat(reg.head), codeRight, commandFloat, reg)
       //case ((codeLeft, Type.NumFloat()), (codeRight, Type.Num())) => floatTemplate(codeLeft, codeRight + convertToFloat(reg.tail.head), commandFloat, reg)
       case ((codeLeft, typeLeft, x), (codeRight, typeRight, y)) => throw new Exception(s"can't perform arithmetic on operands of types ${typeLeft} and ${typeRight}");

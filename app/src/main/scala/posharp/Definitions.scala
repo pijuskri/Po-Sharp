@@ -122,8 +122,9 @@ object Type {
     case NumFloat() => "double";
     case Character() => "i8"
     case Bool() => "i1"
-    //case Array(inner) => "[40 x i32]"
+    case Array(inner) => s"%Type.array.${toLLVM(inner)}*"
     case Undefined() => "void"
+    case _ => throw new Exception(s"$valType unrecognised");
   }
 }
 case class InputVar(name: String, varType: Type)
