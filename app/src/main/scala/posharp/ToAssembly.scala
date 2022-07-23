@@ -67,6 +67,8 @@ object ToAssembly {
         | %Type.array.double = type {i32, double*}
         | %Type.array.i32 = type {i32, i32*}
         | %Type.array.i8 = type {i32, i8*}
+        | %Type.array.i1 = type {i32, i1*}
+        |
         |""".stripMargin;
     input match { case x: Expr.TopLevel => {
       declareFunctions(x);
@@ -172,6 +174,11 @@ object ToAssembly {
         case Type.Array(a) if prop == "size" => conv(Expr.ArraySize(obj))
         case valType => throw new Exception(s"expected a interface, got ${valType}")
       }
+      case Expr.CallF(name, args) => {
+        if(functions.exists(x=>x.name == name)) interpFunction(name, args, env)
+        //else if(env.contains(name)) callLambda(Expr.Ident(name), args, reg, env)
+        else throw new Exception(s"unknown identifier $name")
+      }
       /*
       case Expr.Convert(value, valType: Type) => (convert(value, reg, env), valType) match {
         case ((code, Type.Num()), Type.NumFloat()) => (code + convertToFloat(reg.head), valType)
@@ -179,9 +186,6 @@ object ToAssembly {
         case ((code, Type.Num()), Type.Character()) => (code, valType)
         case ((code, l), r) => throw new Exception(s"cant convert from type ${l} to type $r")
       }
-
-
-
       case Expr.InstantiateInterface(name, values) => interfaces.find(x=>x.name == name) match {
         case Some(intf) => {
           val array_def = s"mov rdi, ${intf.args.length}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n"
@@ -202,11 +206,7 @@ object ToAssembly {
       }
 
 
-      case Expr.CallF(name, args) => {
-        if(functions.exists(x=>x.name == name)) interpFunction(name, args, reg, env)
-        else if(env.contains(name)) callLambda(Expr.Ident(name), args, reg, env)
-        else throw new Exception(s"unknow identifier $name")
-      }
+
       //case Expr.Str(value) => (defineString(value, reg), Type.Str())
       case Expr.Str(value) => (defineArrayKnown(value.length, Type.Character(), value.map(x=>Expr.Character(x)).toList, env)._1, Type.Array(Type.Character()))
       case Expr.Character(value) => (s"mov ${reg.head}, ${value.toInt}\n", Type.Character())
@@ -296,24 +296,25 @@ object ToAssembly {
         stringLiterals = stringLiterals :+ s"$name:\n        db  \"${msg}\", 10, 0\n"
         s"mov rax, $name\n" + printTemplate("format_string") + "jmp exception\n"
       }
-      case x@Expr.CallF(n, a) => convert(x, reg, env)._1;
+
       case x@Expr.CallObjFunc(obj, func) => convert(x, reg, env)._1;
        */
+      case x@Expr.CallF(n, a) => convert(x, env)._1;
       case Expr.Return(in) => {
-        "ret i32 0"
+        in match {
+          case Some(value) => {
+            val converted = convert(value, env)
+            if (makeUserTypesConcrete(functionScope.retType) != converted._2)
+              throw new Exception(s"Wrong return argument: function ${functionScope.name} expects ${functionScope.retType}, got ${converted._2}")
+            converted._1 + s"ret ${Type.toLLVM(converted._2)} ${varc.last()}\n"
+          }
+          case None => "ret void\n";
+        }
         /*
         val defInside = (env.keys.toSet diff functionScope.args.map(x=>x.name).toSet);
         //TODO fix issue when 2 variables reference same location
         val free = "" //freeMemory(env.filter(x=>defInside.contains(x._1)))
-        in match {
-          case Some(value) => {
-            val converted = convert(value, defaultReg, env)
-            if (makeUserTypesConcrete(functionScope.retType) != converted._2)
-              throw new Exception(s"Wrong return argument: function ${functionScope.name} expects ${functionScope.retType}, got ${converted._2}")
-            converted._1 + free + "leave\nret\n"
-          }
-          case None => free + "leave\nret\n";
-        }*/
+        */
 
       }
       case Expr.Print(toPrint) => printInterp(toPrint, env);
@@ -443,18 +444,42 @@ object ToAssembly {
     input.map{ case (function, upperScope) => {
       val info = functions.find(x=>x.name == function.name && x.args==function.argNames).get;
       functionScope = info;
-      var ret = s"define ${Type.toLLVM(info.retType)} @${info.name}() {\n"
-      ret += convert(function.body, Map())._1
-      ret += "\n}"
+      val args = info.args.map(x=>s"${Type.toLLVM(x.varType)} %Input.${x.name}").mkString(", ")
+      var ret = s"define ${Type.toLLVM(info.retType)} @${info.name}($args) {\n"
+      val newEnv = upperScope ++ info.args.map(x=> (x.name, Variable(x.varType))).toMap
+      var body = info.args.map(x=>
+        s"%${x.name} = alloca ${Type.toLLVM(x.varType)}\n" +
+        s"store ${Type.toLLVM(x.varType)} %Input.${x.name}, ${Type.toLLVM(x.varType)}* %${x.name}\n").mkString
+
+      body += convert(function.body, newEnv)._1
+      varc.reset()
+      ret += body.split("\n").map(x=>"\t"+x).mkString("\n")
+      ret += "\n}\n"
       ret
     }}.mkString
   }
-  /*
-  def shiftEnvLocations(env: Env): Env = {
-      env.map(x=> (x._1,
-        Variable(x._2.pointer - 256 - 16 , x._2.varType)
-      ))
+  def interpFunction(name: String, args: List[Expr], env: Env ): (String, Type) = {
+    val argRet = args.map (arg => convertLoc(arg, env))
+    val argInputTypes = argRet.map(x => x._2)
+    var ret = argRet.map(x=>x._1).mkString
+    val argsString = argRet.map(x=>s"${Type.toLLVM(x._2)} ${x._3}").mkString(", ")
+
+    functions.find(x=>x.name == name) match {
+      case Some(x) => ; case None => throw new Exception(s"function of name $name undefined");
+    }
+    functions.find(x=>x.name == name && Type.compare(argInputTypes, x.args.map(x=>makeUserTypesConcrete(x.varType)))) match {
+      case Some(FunctionInfo(p, argTypes, retType)) => {
+        val argTypeString = argTypes.map(x=>Type.toLLVM(x.varType)).mkString(", ")
+        ret += s"${varc.next()} = call ${Type.toLLVM(retType)} ($argTypeString) @$name($argsString)\n"
+        (ret, retType)
+      }
+      case None => {
+        println(functions.find(x=>x.name == name).map(x=>x.args).mkString);
+        throw new Exception(s"no overload of function $name matches argument list $argInputTypes")
+      };
+    }
   }
+  /*
   def callLambda(input: Expr, args: List[Expr], reg: List[String], env: Env): (String, Type) = convert(input, reg, env) match {
     case (code, Type.Function(argTypes, retType)) => {
       val usedReg = defaultReg.filter(x => !reg.contains(x));
@@ -496,92 +521,6 @@ object ToAssembly {
       }
     }
   }
-  def interpFunction(name: String, args: List[Expr], reg: List[String], env: Env ): (String, Type) = {
-    val usedReg = defaultReg.filter(x => !reg.contains(x));
-    var ret = usedReg.map(x=>s"push $x\n").mkString
-    val argRet = args.zipWithIndex.map{case (arg, index) => {
-      val converted = convert(arg, reg, env)
-      (converted._1 + s"push ${reg.head}\n", converted._2)
-    }}
-    val argInputTypes = argRet.map(x=>x._2)
-    ret += argRet.map(x=>x._1).mkString
-    ret += args.zipWithIndex.reverse.map{case (arg, index) => s"pop ${functionCallReg(index)}\n"}.mkString
-
-    //if(converted._2 != argTypes(index)) throw new Exception (s"wrong argument type: expected ${argTypes(index)}, got ${converted._2}")
-    functions.find(x=>x.name == name) match {
-      case Some(x) => ; case None => throw new Exception(s"function of name $name undefined");
-    }
-    functions.find(x=>x.name == name && Type.compare(argInputTypes, x.args.map(x=>makeUserTypesConcrete(x.varType)))) match {
-      case Some(FunctionInfo(p, argTypes, retType)) => {
-        //if(argTypes.length != args.length) throw new Exception (s"wrong number of arguments: expected ${argTypes.length}, got ${args.length}")
-        //TODO add errors for unexpected behaviour
-        def eqT(x: Type): Boolean = x == Type.T1() || x == Type.Array(Type.T1())
-        val template1Type = argTypes.map(x=>x.varType).zipWithIndex.find(x=> eqT(x._1)) match {
-          case Some(n) => argInputTypes(n._2)
-          case None => Type.Undefined()
-        }
-        argTypes.foreach(x=> {
-          if (eqT(x.varType) && !Type.compare(x.varType, template1Type)) throw new Exception(s"Generic type inputs were different; ${x.varType} did not equal ${template1Type}");
-        })
-        val retTypeTemplated = retType match {
-          case Type.T1() | Type.Array(Type.T1()) if(template1Type != Type.Undefined()) => template1Type
-          case _ => retType
-        }
-        ret += s"call ${fNameSignature(name, argTypes.map(x=>x.varType))}\n"
-        ret += s"mov ${reg.head}, rax\n"
-        ret += usedReg.reverse.map(x=>s"pop $x\n").mkString
-        (ret, retTypeTemplated)
-      }
-      case None => {println(functions.find(x=>x.name == name).map(x=>x.args).mkString);throw new Exception(s"no overload of function $name matches argument list $argInputTypes")};
-    }
-  }
-   */
-  //Maybe remove type assingmed after fact(causes issues when type is unknown in compile time)
-  /*
-  def setval(name: String, raxType: Type, env: Env): (String, Env) = {
-    val look = lookup(name, env);
-    var newenv = env;
-    (look._2.varType, raxType) match {
-      case (Type.Undefined(), Type.Undefined()) => {}
-      case (Type.Undefined(), ass) => newenv = env.map(x=>if(x._1==name) (x._1, Variable(x._2.pointer, raxType)) else x)
-      case (x,y) if x == y => {}
-      case (x,y) => throw new Exception(s"trying to set variable of type ${look._2.varType} to $raxType")
-    }
-
-    (s"mov qword ${look._1}, rax\n", newenv)
-  }
-   */
-  /*
-
-  //TODO not safe when default values use rdi
-  def setArrayDirect(code: String, index: Int, size: Int): String = {
-    s"mov rdi, ${code}\n" + s"mov [rdi+${index*size}], ${sizeToReg(size, "rax")}\n"
-  }
-  def getArrayDirect(code: String, index: Int, size: Int, reg: List[String]): String = {
-    s"mov ${reg.tail.head}, ${code}\n" + s"mov ${reg.head}, [${reg.tail.head}+${index*size}]\n"
-  }
-  //List("rax", "rdi", "rsi", "rdx", "rcx", "r8", "r9", "r10", "r11")
-  val fullToByteReg: Map[String, String] = Map(("rax", "al"), ("rdi", "dil"), ("rsi", "sil"), ("rdx","dl"))
-  def sizeToReg(size: Int, reg: String): String = size match {
-    case 8 => reg
-    case 1 => fullToByteReg.getOrElse(reg, reg)
-  }
-  def arraySizeFromType(valtype: Type): Int = valtype match {
-    case Type.Undefined() => 8
-    case Type.Character() => 1
-    case Type.Num() => 8
-    case Type.NumFloat() => 8
-    case Type.Function(_,_) => 8
-    case Type.T1() => 8
-  }
-
-  def defineArrayKnown(size: Int, setElemType:Type, defaultValues: List[Expr], env: Env): (String, Type) = {
-    defineArray(s"mov rax, 0${size}d\n", setElemType, defaultValues, env)
-  }
-  //TODO use available registers or save, not rax
-
-  def skipArrSize(index: Int, size: Int): Int = index + (8/size)
-  /*
   def defineString(value: String, reg: List[String]): String = {
     //TODO Make definitions dynamic also
     //var ret = s"mov rdi, ${value.length+1}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n" + "mov r9, rax\n";
@@ -590,7 +529,6 @@ object ToAssembly {
     s"mov ${reg.head}, $label\n"
   }
    */
-  */
   def getArrayPointerIndex(arrType: Type, arrLoc: String, indexLoc: String): String = {
     val Tsig = Type.toLLVM(arrType)
     val arrTC = s"%Type.array.$Tsig"
@@ -731,7 +669,7 @@ object ToAssembly {
   */
 
   def printTemplate(format: String, ty: String): String = {
-    s"%call.${varc.extra()} = call i32 (i8*, ...) @printf(i8* getelementptr inbounds" +
+    s"%ret.${varc.extra()} = call i32 (i8*, ...) @printf(i8* getelementptr inbounds" +
       s" ([3 x i8], [3 x i8]* @$format, i32 0, i32 0), $ty ${varc.last()})\n"
   }
   def printInterp(toPrint: Expr, env: Env): String = {

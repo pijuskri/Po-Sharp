@@ -44,16 +44,6 @@ object Main extends App {
     println("")
     writeCompiled(asm, "compiled/", file)
   })
-  /*
-  val toCompile = readFile("", inputFile)
-  val parsed = Parser.parseInput(toCompile);
-  //println(Util.prettyPrint(parsed));
-  println("")
-  val asm = ToAssembly.convertMain(parsed);
-  //println(asm);
-
-  writeToFile(asm, "compiled/", "hello.asm")
-   */
 
   def writeCompiled(asm: String, directoryPath: String, file: String): Unit = {
     val flatFile = file.split("/").last + ".ll"
