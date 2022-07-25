@@ -9,6 +9,7 @@ import posharp.{Parser, ToAssembly}
 import java.io.File
 import java.lang.reflect.Method
 import java.util.concurrent.{Executors, TimeUnit}
+import scala.collection.mutable
 import scala.io.AnsiColor._
 import scala.reflect.internal.util.ScalaClassLoader
 import scala.sys.process.Process
@@ -73,7 +74,7 @@ object Veritas {
     val pool = Executors.newFixedThreadPool(numOfThreads)
 
     var exitCode = 0
-    val out = new StringBuilder
+    val out = new mutable.StringBuilder
     out.append('\n')
 
     // reflection stuff
@@ -99,7 +100,7 @@ object Veritas {
 
       def runTest(instance: AnyRef, tests: Array[Method]): Unit = {
         // Put output here until all tests are done to avoid using synchronized
-        val chunkedOut = new StringBuilder
+        val chunkedOut = new mutable.StringBuilder
 
         // Catches invalid tests (say main is missing from the code snippet)
         tests.foreach(el => {
