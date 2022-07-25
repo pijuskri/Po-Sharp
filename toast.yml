@@ -2,14 +2,7 @@ image: gradle:7.4.2-jdk17
 command_prefix: set -e # Make Bash fail fast.
 
 tasks:
-  build:
-    input_paths:
-      - .
-    command: gradle build
-
   install_deps:
-    dependencies:
-      - build
     command: |
       apt-get update
       apt-get install make nasm gcc -y
@@ -19,11 +12,18 @@ tasks:
         apt-get install micro -y
       fi
 
+  build:
+    dependencies:
+      - install_deps
+    input_paths:
+      - .
+    command: gradle build
+
   test:
     environment:
       args: ''
     dependencies:
-      - install_deps
+      - build
     output_paths:
       - coverage.json
     command: gradle runCoverage $args
