@@ -72,25 +72,22 @@ object ToAssembly {
         |""".stripMargin;
     input match { case x: Expr.TopLevel => {
       declareFunctions(x);
+      converted += declareInterfaces(x) + "\n";
       /*
-      declareInterfaces(x);
       declareEnums(x)
       converted += exportDeclarations(currentFile)
       converted += handleImports(x, otherFiles)
        */
       converted += defineFunctions(x.functions.map(y=>(y, Map())), false);
-      /*
       converted += defineFunctions(x.interfaces.flatMap(intf=>
         intf.functions.map(func=>Expr.Func(intf.name + "_" + func.name, func.argNames, func.retType, func.body)))
         .map(y=>(y, Map())),
         false
       );
-       */
     }}
     //converted += defineFunctions(lambdas, true);
     //converted += "exception:\nmov rdi, 1\ncall exit\n"
     //converted += stringLiterals.mkString
-    //converted = converted.split("\n").map(x=>if(x.contains(":")) x+"\n" else "   "+x+"\n").mkString
     converted
   }
 
@@ -111,7 +108,7 @@ object ToAssembly {
       case Expr.Ident(name) => {
         enums.find(x => x.name == name).orElse(interfaces.find(x=>x.name == name)).orElse(Some(lookup(name, env))) match {
           case Some(EnumInfo(_, el)) => ("", Type.Enum(el))
-          case Some(InterfaceInfo(_, props, funcs)) => ("", Type.Interface(props, funcs))
+          case Some(InterfaceInfo(itfName, props, funcs)) => ("", Type.Interface(itfName, props, funcs))
           case Some((code: String, variable: Variable)) => (code, variable.varType)
           case _ => throw new Exception(s"unrecognised identifier $name")
         }
@@ -159,25 +156,42 @@ object ToAssembly {
       case Expr.GetArray(name, index) => getArray(name, index, env);
       case Expr.ArraySize(name) => getArraySize(name, env);
 
-      case Expr.GetProperty(obj, prop) => convertType(obj, env) match {
-        /*
-        case(code, Type.Interface(props, funcs)) => props.find(x=>x.name == prop) match {
+      case Expr.GetProperty(obj, prop) => convert(obj, env) match {
+        case(code, Type.Interface(name, props, funcs)) => props.find(x=>x.name == prop) match {
           case Some(n) => {
-            val ret = code + getArrayDirect(reg.head, props.indexOf(n), 8, reg)
+            val intfDec = s"%Class.$name"
+            val idx = props.indexOf(n);
+            val ret = code + s"${varc.next()} = getelementptr $intfDec, $intfDec* ${varc.secondLast()}, i32 0, i32 $idx\n" +
+             s"${varc.next()} = load ${Type.toLLVM(n.varType)}, ${Type.toLLVM(n.varType)}* ${varc.secondLast()}\n"
             (ret, n.varType)
           }
           case None => throw new Exception(s"interface ${interfaces.find(x=>x.args == props).get.name} does not have a property ${prop}")
         }
+        /*
         //case (code, Type.StaticInterface(props, funcs)) =>
         case (code, Type.Enum(el)) => (s"mov ${reg.head}, 0${el.indexOf(prop)}d\n", Type.Num())
          */
-        case Type.Array(a) if prop == "size" => conv(Expr.ArraySize(obj))
+        case (code, Type.Array(a)) if prop == "size" => getArraySize(Expr.Compiled(code, Type.Array(a)), env)//conv(Expr.ArraySize(obj))
         case valType => throw new Exception(s"expected a interface, got ${valType}")
       }
       case Expr.CallF(name, args) => {
         if(functions.exists(x=>x.name == name)) interpFunction(name, args, env)
         //else if(env.contains(name)) callLambda(Expr.Ident(name), args, reg, env)
         else throw new Exception(s"unknown identifier $name")
+      }
+      case Expr.CallObjFunc(obj, func) => convertType(obj, env) match {
+        case Type.Interface(_, props, funcs) => callObjFunction(obj, func, props, funcs, isStatic = false, env)
+        case Type.StaticInterface(props, funcs) => callObjFunction(obj, func, props, funcs, isStatic = true, env)
+      }
+      case Expr.InstantiateInterface(name, values) => interfaces.find(x=>x.name == name) match {
+        case Some(intf) => {
+          val struct_def = s"${varc.next()} = alloca %Class.$name\n"
+
+          val func_code = interpFunction(name+"_"+name, Expr.Compiled(struct_def, UserType(name)) +: values, env)._1
+          val ret = func_code;
+          (ret, Type.Interface(name, intf.args, intf.funcs))
+        }
+        case None => throw new Exception(s"no such interface defined")
       }
       /*
       case Expr.Convert(value, valType: Type) => (convert(value, reg, env), valType) match {
@@ -186,26 +200,6 @@ object ToAssembly {
         case ((code, Type.Num()), Type.Character()) => (code, valType)
         case ((code, l), r) => throw new Exception(s"cant convert from type ${l} to type $r")
       }
-      case Expr.InstantiateInterface(name, values) => interfaces.find(x=>x.name == name) match {
-        case Some(intf) => {
-          val array_def = s"mov rdi, ${intf.args.length}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n"
-          //val newenv = newVar("self", UserType(name), env)
-          //val func_code = interpFunction(name+"_"+name, Expr.Ident("self") +: values, reg, newenv)._1
-          //val ret = array_def + setval("self", UserType(name), newenv)._1 + func_code + "pop rax\n";
-
-          val func_code = interpFunction(name+"_"+name, Expr.Compiled(array_def, UserType(name)) +: values, reg, env)._1
-          val ret = func_code + "pop rax\n";
-          (ret, Type.Interface(intf.args, intf.funcs))
-        }
-        case None => throw new Exception(s"no such interface defined")
-      }
-
-      case Expr.CallObjFunc(obj, func) => conv(obj) match {
-        case(code, t@Type.Interface(props, funcs)) => callObjFunction(obj, func, props, funcs, isStatic = false, reg, env)
-        case(code, Type.StaticInterface(props, funcs)) => callObjFunction(obj, func, props, funcs, isStatic = true, reg, env)
-      }
-
-
 
       //case Expr.Str(value) => (defineString(value, reg), Type.Str())
       case Expr.Str(value) => (defineArrayKnown(value.length, Type.Character(), value.map(x=>Expr.Character(x)).toList, env)._1, Type.Array(Type.Character()))
@@ -235,7 +229,7 @@ object ToAssembly {
       case Expr.SetVal(Expr.Ident(name), value) => {
         val look = lookupOffset(name, env)
         val converted = convertLoc(value, env);
-        if(look.varType != converted._2) throw new Exception(s"mismatch when assigning value" +
+        if(makeUserTypesConcrete(look.varType) != converted._2) throw new Exception(s"mismatch when assigning value" +
           s" to variable $name, expected ${look.varType}, but got ${converted._2}")
         val set = s"store ${Type.toLLVM(converted._2)} ${converted._3}, ${Type.toLLVM(converted._2)}* %$name\n"
         converted._1 + set;
@@ -277,28 +271,32 @@ object ToAssembly {
         ret
       }
       case Expr.SetArray(expr, index, value) => setArray(expr, index, value, env)
-      /*
-
-      case Expr.SetInterfaceProp(intf, prop, valueRaw) => convert(intf, reg.tail, env) match {
-        case(code, Type.Interface(props,f)) => props.find(x=>x.name == prop) match {
-          case Some(n) => conv(valueRaw) match {
-            case (valCode, valType) if(valType == n.varType) =>
-              valCode + code + setArrayDirect(s"${reg.tail.head}", props.indexOf(n), 8)
-            case (_, valType) => throw new Exception(s"trying to property ${n.name} of type ${n.varType} to incompatible type ${valType}")
+      case Expr.SetInterfaceProp(intf, prop, valueRaw) => convertLoc(intf, env) match {
+        case(code, Type.Interface(name, props,f), intfLoc) => props.find(x=>x.name == prop) match {
+          case Some(n) => convertLoc(valueRaw, env) match {
+            case (valCode, valType, valueLoc) if(valType == n.varType) => {
+              val intfDec = s"%Class.$name"
+              val idx = props.indexOf(n);
+              var ret = code + valCode
+              ret += s"${varc.next()} = getelementptr $intfDec, $intfDec* $intfLoc, i32 0, i32 $idx\n"
+              ret += s"store ${Type.toLLVM(valType)} $valueLoc, ${Type.toLLVM(n.varType)}* ${varc.last()}\n"
+              ret
+            }
+            case (_, valType, _) => throw new Exception(s"trying to property ${n.name} of type ${n.varType} to incompatible type ${valType}")
           }
           case None => throw new Exception(s"interface ${interfaces.find(x=>x.args == props).get.name} does not have a property ${prop}")
         }
-        case (x, valType) => throw new Exception(s"expected a interface, got ${valType}")
+        case (_, valType, _) => throw new Exception(s"expected an interface, got ${valType}")
       }
+      /*
       case Expr.ThrowException(err) => {
         val msg = AnsiColor.RED + "RuntimeException: " + err + AnsiColor.RESET
         val name = s"exception_print_${stringLiterals.length}"
         stringLiterals = stringLiterals :+ s"$name:\n        db  \"${msg}\", 10, 0\n"
         s"mov rax, $name\n" + printTemplate("format_string") + "jmp exception\n"
       }
-
-      case x@Expr.CallObjFunc(obj, func) => convert(x, reg, env)._1;
        */
+      case x@Expr.CallObjFunc(obj, func) => convert(x, env)._1;
       case x@Expr.CallF(n, a) => convert(x, env)._1;
       case Expr.Return(in) => {
         in match {
@@ -348,20 +346,13 @@ object ToAssembly {
   private def declareFunctions(input: Expr.TopLevel): Unit = {
     functions = input.functions.map(x=> FunctionInfo(x.name, x.argNames, x.retType))
   }
-  private def declareInterfaces(input: Expr.TopLevel): Unit = {
+  private def declareInterfaces(input: Expr.TopLevel): String = {
     interfaces = input.interfaces.map(x=> InterfaceInfo(x.name, x.props, x.functions.map(x=>FunctionInfo(x.name,x.argNames,x.retType))))
-    /*
-    interfaces = interfaces.map(x=>
-      InterfaceInfo( x.name, x.args.map(y=>
-        InputVar(y.name, traverseTypeTree(y.varType))
-      ), x.funcs.map(y =>
-        FunctionInfo(y.name,
-          y.args.map(z=>InputVar(z.name, traverseTypeTree(z.varType))),
-          traverseTypeTree(y.retType))
-      ))
-    )
-     */
     functions = functions ::: interfaces.flatMap(x=>addPrefixToFunctions(x.name,x.funcs))
+    interfaces.map(intf => {
+      val types = intf.args.map(x=>Type.toLLVM(x.varType)).mkString(", ")
+      s"%Class.${intf.name} = type {$types}\n"
+    }).mkString
   }
   private def addPrefixToFunctions(prefix: String, funcs: List[FunctionInfo]): List[FunctionInfo] = funcs.map(y=>FunctionInfo(prefix+"_"+y.name, y.args, y.retType))
   private def declareEnums(input: Expr.TopLevel): Unit = {
@@ -431,7 +422,7 @@ object ToAssembly {
 
   def makeUserTypesConcrete(input: Type): Type = input match {
     case UserType(name) => interfaces.find(x=>x.name == name) match {
-      case Some(n) => Type.Interface(n.args, n.funcs)
+      case Some(n) => Type.Interface(name, n.args, n.funcs)
       case _ => throw new Exception (s"no interface of name $name");
     }
     case x => x
@@ -452,7 +443,11 @@ object ToAssembly {
         s"store ${Type.toLLVM(x.varType)} %Input.${x.name}, ${Type.toLLVM(x.varType)}* %${x.name}\n").mkString
 
       body += convert(function.body, newEnv)._1
+
+      if(info.retType == Type.Undefined()) body += "ret void\n"
+      if(info.name == "main") body += "ret i32 0\n"
       varc.reset()
+
       ret += body.split("\n").map(x=>"\t"+x).mkString("\n")
       ret += "\n}\n"
       ret
@@ -470,13 +465,36 @@ object ToAssembly {
     functions.find(x=>x.name == name && Type.compare(argInputTypes, x.args.map(x=>makeUserTypesConcrete(x.varType)))) match {
       case Some(FunctionInfo(p, argTypes, retType)) => {
         val argTypeString = argTypes.map(x=>Type.toLLVM(x.varType)).mkString(", ")
-        ret += s"${varc.next()} = call ${Type.toLLVM(retType)} ($argTypeString) @$name($argsString)\n"
+        if (retType != Type.Undefined()) ret += s"${varc.next()} = ";
+        ret += s"call ${Type.toLLVM(retType)} ($argTypeString) @$name($argsString)\n"
         (ret, retType)
       }
       case None => {
         println(functions.find(x=>x.name == name).map(x=>x.args).mkString);
         throw new Exception(s"no overload of function $name matches argument list $argInputTypes")
       };
+    }
+  }
+
+  def callObjFunction(obj: Expr, func: Expr.CallF, props: List[InputVar], funcs: List[FunctionInfo], isStatic: Boolean, env: Env): (String, Type) = {
+    funcs.find(x=>x.name == func.name) match {
+      case Some(n) => {
+        var args = func.args
+        //TODO fails if interface has same attributes/functions but different name
+        val intfName = interfaces.find(x=>x.args == props && x.funcs == funcs).get.name
+        if(n.args.nonEmpty && n.args.head.name == "self") {
+          if(isStatic) throw new Exception(s"can not call method $func staticly")
+          else args = obj +: args
+        }
+        interpFunction(intfName+"_"+func.name, args, env)
+      }
+      case None => props.find(x=>x.name == func.name) match {
+        case Some(InputVar(_, Type.Function(_,_))) => {
+          //callLambda(Expr.GetProperty(obj, func.name), func.args, reg, env)
+          ("",Type.Undefined())
+        }
+        case None => throw new Exception(s"object has no property or function named $func")
+      }
     }
   }
   /*
@@ -500,27 +518,7 @@ object ToAssembly {
     }
     case (_, x) => throw new Exception(s"Can not call variable of type $x");
   }
-  def callObjFunction(obj: Expr, func: Expr.CallF, props: List[InputVar], funcs: List[FunctionInfo], isStatic: Boolean, reg: List[String], env: Env): (String, Type) = {
-    funcs.find(x=>x.name == func.name) match {
-      case Some(n) => {
-        var args = func.args
-        //TODO fails if interface has same attributes/functions but different name
-        val intfName = interfaces.find(x=>x.args == props && x.funcs == funcs).get.name
-        if(n.args.nonEmpty && n.args.head.name == "self") {
-          if(isStatic) throw new Exception(s"can not call method $func staticly")
-          else args = obj +: args
-        }
-        interpFunction(intfName+"_"+func.name, args, reg, env)
-      }
-      case None => props.find(x=>x.name == func.name) match {
-        case Some(InputVar(_, Type.Function(_,_))) => {
-          //callLambda(Expr.GetProperty(Expr.Compiled(code, t), func.name), func.args, reg, env)
-          callLambda(Expr.GetProperty(obj, func.name), func.args, reg, env)
-        }
-        case None => throw new Exception(s"object has no property or function named $func")
-      }
-    }
-  }
+
   def defineString(value: String, reg: List[String]): String = {
     //TODO Make definitions dynamic also
     //var ret = s"mov rdi, ${value.length+1}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n" + "mov r9, rax\n";

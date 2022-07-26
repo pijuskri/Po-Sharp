@@ -1,8 +1,17 @@
-##To do
+## LLVM migration
+
+* fix overloading
+* allow for no type declaration
+* strings
+* conversions
+* lambdas
+* exceptions
+* imports
+
+## To do
 
 * file name in error messages
 * line numbers in compiler
-* make functions use stack instead of registers
 * static variables
 * add prinf
 * Prevent array deferencing (point to a pointer that points to array)
