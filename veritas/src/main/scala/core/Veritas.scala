@@ -164,7 +164,7 @@ object Veritas {
    * Deletes all files created by writeToFile and the tests.
    */
   private def deleteTestArtifacts(): Unit = {
-    new File("compiled")
+    new File("../compiled")
       .listFiles
       .filter(_.isFile)
       .filter(_.getName.contains("test"))
@@ -199,10 +199,10 @@ object Veritas {
    * @return The last thing printed by the code
    */
   def GetOutput(asm: String, fileName: String): String = {
-    writeToFile(asm, "compiled/", s"$fileName.asm")
+    writeToFile(asm, "../compiled/", s"$fileName.ll")
 
     val prefix = if (IsWindows()) {"wsl "} else {""} 
-    val tmp = Process(prefix + s"make -f ../Makefile TARGET_FILE=$fileName").!!
+    val tmp = Process(prefix + s"cd .. && make build TARGET_FILE=\"$fileName\"").!!
 
     tmp.split("\n").last.trim
   }
