@@ -1,6 +1,6 @@
 TARGET_FILE = 'hello'
 
-all: run
+all: run_llvm
 
 #assemble hello.asm
 build:
@@ -9,21 +9,19 @@ build:
 	nasm -felf64 $(TARGET_FILE).asm && \
 	gcc -O0 -ggdb -no-pie $(TARGET_FILE).o -o $(TARGET_FILE)
 
+#compile all files in directory
+.PHONY: build_all
+build_all:
+	bash ./build.sh
+
+build_all_llvm:
+	bash ./build-llvm.sh
+
 #compile and run asm 
-run: build
-	nasm -felf64 compiled/$(TARGET_FILE).asm
-	gcc -O0 -ggdb -no-pie compiled/$(TARGET_FILE).o -o compiled/$(TARGET_FILE)
+run_llvm: build_all_llvm
 	compiled/$(TARGET_FILE)
 
-#compile Po# using sbt and then run it, also running the generated .asm
-full: sbt run
-
-#compile Po# compiler
-sbt: 
-	sbt --batch -Dsbt.server.forcestart=true run
-
-# for some example on the internet, the gcc compiler has issues
-standalone:
-	nasm -f elf hello.asm && ld -m elf_i386 hello.o -o hello && ./hello
+run_asm: build_all
+	compiled/$(TARGET_FILE)
 
 #valgrind --leak-check=full --track-origins=yes --dsymutil=yes ./hello

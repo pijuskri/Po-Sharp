@@ -4,7 +4,7 @@ import org.reflections.Reflections
 import org.reflections.scanners.Scanners.TypesAnnotated
 import org.reflections.util.ConfigurationBuilder
 import posharp.Main.writeToFile
-import posharp.{Parser, ToAssembly}
+import posharp.{Expr, Parser, ToAssembly}
 
 import java.io.File
 import java.lang.reflect.Method
@@ -185,7 +185,7 @@ object Veritas {
       if (calculateCoverage)
         cov.AddCoverage(parsed)
 
-      this.synchronized(Success(ToAssembly.convertMain(parsed)))
+      this.synchronized(Success(ToAssembly.convertMain(parsed, "", Map[String, Expr.TopLevel]())))
     } catch {
       case e: Exception => Failure(e)
     }
