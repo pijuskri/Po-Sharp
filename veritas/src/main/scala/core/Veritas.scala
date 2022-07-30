@@ -1,18 +1,16 @@
 package core
 
+import core.FileHelpers.deleteTestArtifacts
 import org.reflections.Reflections
 import org.reflections.scanners.Scanners.TypesAnnotated
 import org.reflections.util.ConfigurationBuilder
-import posharp.Main.writeToFile
 import posharp.{Expr, Parser, ToAssembly}
 
-import java.io.File
 import java.lang.reflect.Method
 import java.util.concurrent.{Executors, TimeUnit}
 import scala.collection.mutable
 import scala.io.AnsiColor._
 import scala.reflect.internal.util.ScalaClassLoader
-import scala.sys.process.Process
 import scala.util.{Failure, Success, Try}
 
 object Veritas {
@@ -161,17 +159,6 @@ object Veritas {
   }
 
   /**
-   * Deletes all files created by writeToFile and the tests.
-   */
-  private def deleteTestArtifacts(): Unit = {
-    new File("../compiled")
-      .listFiles
-      .filter(_.isFile)
-      .filter(_.getName.contains("test"))
-      .foreach(el => el.delete())
-  }
-
-  /**
    * Parses and compiles the code to asm
    *
    * @param input The code
@@ -189,38 +176,6 @@ object Veritas {
     } catch {
       case e: Exception => Failure(e)
     }
-  }
-
-  /**
-   * Writes the code to a file, executes it and returns the output.
-   *
-   * @param asm      Assembly
-   * @param fileName The filename
-   * @return The last thing printed by the code
-   */
-  def GetOutput(asm: String, fileName: String): String = {
-    writeToFile(asm, "../compiled/", s"$fileName.ll")
-
-    val prefix = if (IsWindows()) {"wsl "} else {""} 
-    val tmp = Process(prefix + s"cd .. && make build TARGET_FILE=\"$fileName\"").!!
-
-    tmp.split("\n").last.trim
-  }
-
-  private def IsWindows(): Boolean = System.getProperty("os.name").toLowerCase().contains("windows")
-
-  /**
-   * Creates a unique-enough™ filename for the current test by concatenating the class name the test comes from with
-   * the test name itself.
-   *
-   * @return The test name
-   */
-  def getTestName: String = {
-    val stackTrace = new Throwable().getStackTrace()(2)
-    val className = stackTrace.getClassName
-    val methodName = stackTrace.getMethodName
-
-    s"$className.$methodName"
   }
 
   class Test extends scala.annotation.ConstantAnnotation {}
