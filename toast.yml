@@ -28,6 +28,8 @@ tasks:
     dependencies:
       - build_dependencies
     description: "Performs a `gradle build`. Only runs in the CI environment to save time."
+    environment:
+      CI: ''
     excluded_input_paths:
       - 'bin'
       - 'build'
