@@ -1,29 +1,48 @@
-image: gradle:7.4.2-jdk17
+image: antoniosbarotsis/posharp-veritas
 command_prefix: set -e # Make Bash fail fast.
 
 tasks:
-  install_deps:
+  build_dependencies:
     command: |
-      apt-get update
-      apt-get install make nasm gcc -y
-      
-      # Dev dependencies (not for CI runner)
-      if [[ -z "${CI}" ]]; then
-        apt-get install micro -y
-      fi
+      ./gradlew clean build --no-daemon 2>&1 || true
+    input_paths:
+      - gradlew
+      - .gradle
+      - gradle
+      - build.gradle.kts
+      - gradle.properties
+      - settings.gradle.kts
+      - app/build.gradle.kts
+      - app/settings.gradle.kts
+      - veritas/build.gradle.kts
+      - veritas/settings.gradle.kts
 
   build:
+    command: |
+      # Skip separate build stage locally to save time
+      if [[ -z "${CI}" ]]; then
+        echo "Not in CI environment, skipping build stage..."
+      else
+        ./gradlew clean build --no-daemon
+      fi
     dependencies:
-      - install_deps
+      - build_dependencies
+    excluded_input_paths:
+      - 'bin'
+      - 'build'
     input_paths:
-      - .
-    command: gradle build
+      - '.'
 
   test:
+    cache: false
+    command: |
+      ./gradlew runCoverage $args --no-daemon
+    dependencies:
+      - build_dependencies
+      - build
     environment:
       args: ''
-    dependencies:
-      - build
+    input_paths:
+      - '.'
     output_paths:
       - coverage.json
-    command: gradle runCoverage $args
