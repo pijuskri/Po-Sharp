@@ -19,6 +19,9 @@ tasks:
 
   build:
     command: |
+      # Make the wrapper executable
+      chmod +x gradlew
+
       # Skip separate build stage locally to save time
       if [[ -z "${CI}" ]]; then
         echo "Not in CI environment, skipping build stage..."
