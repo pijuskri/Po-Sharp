@@ -6,8 +6,9 @@ all: run_llvm
 build:
 	mkdir -p compiled && \
 	cd compiled/ && \
-	nasm -felf64 $(TARGET_FILE).asm && \
-	gcc -O0 -ggdb -no-pie $(TARGET_FILE).o -o $(TARGET_FILE)
+	llc $(TARGET_FILE).ll && \
+	gcc -O0 -ggdb -no-pie $(TARGET_FILE).s -o $(TARGET_FILE)
+	compiled/$(TARGET_FILE)
 
 #compile all files in directory
 .PHONY: build_all

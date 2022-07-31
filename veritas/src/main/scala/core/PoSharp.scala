@@ -54,7 +54,7 @@ object PoSharp {
     def Run(): (Boolean, String) = {
       Veritas.Compile(code) match {
         case Success(value) =>
-          val output = Veritas.GetOutput(value, Veritas.getTestName)
+          val output = FileHelpers.GetOutput(value, FileHelpers.getTestName)
 
           if (expected == output) {
             (true, expected)
@@ -63,7 +63,7 @@ object PoSharp {
           }
         case Failure(exception) =>
           println(s"Compilation failed with $exception")
-          throw  exception
+          throw exception
       }
 
     }
