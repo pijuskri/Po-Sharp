@@ -80,7 +80,7 @@ object Type {
   case class Character() extends Type
   case class Array(elemType: Type) extends Type
   case class Bool() extends Type
-  case class ConstantString() extends Type
+  case class Str() extends Type
   //case class Interface(properties: List[InputVar]) extends Type
   case class Interface(name: String, properties: List[InputVar], functions: List[FunctionInfo]) extends Type
   case class StaticInterface(properties: List[InputVar], functions: List[FunctionInfo]) extends Type
@@ -126,7 +126,7 @@ object Type {
     case Bool() => "i1"
     case Array(inner) => s"%Type.array.${toLLVM(inner)}*"
     case Undefined() => "void"
-    case ConstantString() => "i8*"
+    case Str() => "i8*"
     //should be avoided, as usertype could be not a class
     case UserType(name) => s"%Class.$name*"
     case Interface(name, _, _) => s"%Class.$name*"

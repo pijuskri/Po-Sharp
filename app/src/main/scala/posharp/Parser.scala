@@ -142,7 +142,7 @@ object Parser {
     case "char" => Type.Character();
     case "float" => Type.NumFloat();
     case "bool" => Type.Bool();
-    case "string" => Type.Array(Type.Character());
+    case "string" => Type.Str();
     case "void" => Type.Undefined();
     case "T1" => Type.T1();
   }

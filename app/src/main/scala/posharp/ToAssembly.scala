@@ -54,18 +54,14 @@ object ToAssembly {
     lambdas = List()
     functionScope = FunctionInfo("main", List(), Type.Num());
 
-    /*
-    converted += "format_num:\n        db  \"%d\", 10, 0\n"
-    converted += "format_float:\n        db  \"%f\", 10, 0\n"
-    converted += "format_string:\n        db  \"%s\", 10, 0\n"
-    converted += "format_char:\n        db  \"%c\", 10, 0\n"
-    converted += "format_true:\n        db  \"true\", 10, 0\n"
-    converted += "format_false:\n        db  \"false\", 10, 0\n"
-     */
     var converted =
       """
         | declare i32 @printf(i8*, ...)
         | declare i64* @calloc(i32, i32)
+        | declare i8* @malloc(i32)
+        | declare void @free(i8*)
+        | declare i8* @memcpy(i8*, i8*, i32)
+        | declare void @exit(i32)
         | @format_num = private constant [3 x i8] c"%d\00"
         | @format_float = private constant [3 x i8] c"%f\00"
         | @format_string = private constant [3 x i8] c"%s\00"
@@ -94,8 +90,8 @@ object ToAssembly {
       );
     }}
     //converted += defineFunctions(lambdas, true);
-    //converted += "exception:\nmov rdi, 1\ncall exit\n"
-    //converted += stringLiterals.mkString
+    //converted += "define void @exception() {\ncall void @exit(i32 1)\n}\n"
+    converted += stringLiterals.mkString
     converted
   }
 
@@ -201,7 +197,7 @@ object ToAssembly {
         }
         case None => throw new Exception(s"no such interface defined")
       }
-      //case Expr.Str(value) => (defineString(value), Type.Str())
+      case Expr.Str(value) => (defineString(value), Type.Str())
       /*
       case Expr.Convert(value, valType: Type) => (convert(value, reg, env), valType) match {
         case ((code, Type.Num()), Type.NumFloat()) => (code + convertToFloat(reg.head), valType)
@@ -308,12 +304,8 @@ object ToAssembly {
         case (_, valType, _) => throw new Exception(s"expected an interface, got ${valType}")
       }
       case Expr.ThrowException(err) => {
-        val msg = AnsiColor.RED + "RuntimeException: " + err + AnsiColor.RESET
-        val label = s"string.${stringLiterals.length}";
-        val n = msg.length+1;
-        stringLiterals = stringLiterals :+ s"@$label = internal constant [$n x i8] c\"$msg\""
-        val name = s"exception_print.${stringLiterals.length}"
-        s"mov rax, $name\n" + printTemplate("format_string", "i8*") + "jmp exception\n"
+        val msg = AnsiColor.RED + "RuntimeException: " + err + AnsiColor.RESET + "\n"
+        defineString(msg) + printTemplate("format_string", "i8*") + "call void @exit(i32 1)\n" // "br label %exception\n"
       }
       case x@Expr.CallObjFunc(obj, func) => convert(x, env)._1;
       case x@Expr.CallF(n, a) => convert(x, env)._1;
@@ -540,13 +532,16 @@ object ToAssembly {
     case (_, x) => throw new Exception(s"Can not call variable of type $x");
   }
   */
-  def defineString(value: String, reg: List[String]): String = {
-    //TODO Make definitions dynamic also
-    //var ret = s"mov rdi, ${value.length+1}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n" + "mov r9, rax\n";
+  def defineString(value: String): String = {
     val label = s"string.${stringLiterals.length}";
-    val n = value.length+1;
-    stringLiterals = stringLiterals :+ s"@$label = internal constant [$n x i8] c\"$value\""
-    s"${varc.next()} = getelementptr inbounds ([$n x i8]*  @$label, i32 0, i32 0)"
+    val n = value.length;
+    //%foo = bitcast i8* %1 to %Foo*
+    stringLiterals = stringLiterals :+ s"@$label = internal constant [$n x i8] c\"$value\"" //
+    //s"${varc.next()} = getelementptr inbounds i8*, i8** @$label, i32 0, i32 0"
+    s"${varc.next()} = alloca i8*\n" +
+      s"${varc.next()} = bitcast [$n x i8]* @$label to i8*\n"
+      //s"store i8* @$label, i8** ${varc.last()}\n" +
+      //s"${varc.next()} = load i8*, i8** ${varc.secondLast()}\n"
   }
 
   def getArrayPointerIndex(arrType: Type, arrLoc: String, indexLoc: String): String = {
@@ -699,8 +694,9 @@ object ToAssembly {
       case Type.Num() => converted._1 + printTemplate("format_num", "i32");
       case Type.Bool() => converted._1 + printTemplate("format_num", "i1");
       case Type.NumFloat() => converted._1 + printTemplate("format_float", "double");
+      case Type.Str() => converted._1 + printTemplate("format_string", "i8*");
       /*
-      //case (Type.Str) => converted._1 + printTemplate("format_string");
+      //
       case Type.Bool() => converted._1 + s"cmp rax, 0\nje bool_${ifCounter}\n" + printTemplate("format_true") +
         s"jmp boole_${ifCounter}\nbool_${ifCounter}:\n" + printTemplate("format_false") + s"boole_${ifCounter}:\n";
       case Type.Character() => converted._1 + printTemplate("format_char");

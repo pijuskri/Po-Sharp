@@ -1,9 +1,7 @@
 ## LLVM migration
 
-* strings
 * conversions
 * lambdas
-* exceptions
 * imports
 
 ## To do
