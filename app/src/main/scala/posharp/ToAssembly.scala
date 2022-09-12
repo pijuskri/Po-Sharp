@@ -2,6 +2,8 @@ package posharp
 
 import posharp.Type.{UserType, shortS}
 
+import scala.io.AnsiColor
+
 class Counter {
   private var counter = 1;
   private var counterExtra = 0;
@@ -22,6 +24,12 @@ class Counter {
   }
   def pauseToggle(): Unit = {
     paused = !paused;
+  }
+  def pause(): Unit = {
+    paused = true;
+  }
+  def unpause(): Unit = {
+    paused = false;
   }
 }
 
@@ -193,6 +201,7 @@ object ToAssembly {
         }
         case None => throw new Exception(s"no such interface defined")
       }
+      //case Expr.Str(value) => (defineString(value), Type.Str())
       /*
       case Expr.Convert(value, valType: Type) => (convert(value, reg, env), valType) match {
         case ((code, Type.Num()), Type.NumFloat()) => (code + convertToFloat(reg.head), valType)
@@ -201,7 +210,7 @@ object ToAssembly {
         case ((code, l), r) => throw new Exception(s"cant convert from type ${l} to type $r")
       }
 
-      //case Expr.Str(value) => (defineString(value, reg), Type.Str())
+      //
       case Expr.Str(value) => (defineArrayKnown(value.length, Type.Character(), value.map(x=>Expr.Character(x)).toList, env)._1, Type.Array(Type.Character()))
       case Expr.Character(value) => (s"mov ${reg.head}, ${value.toInt}\n", Type.Character())
 
@@ -234,9 +243,19 @@ object ToAssembly {
         val set = s"store ${Type.toLLVM(converted._2)} ${converted._3}, ${Type.toLLVM(converted._2)}* %$name\n"
         converted._1 + set;
       };
-      case Expr.DefVal(Expr.Ident(name), varType) => {
+      case Expr.DefVal(name, varType) => {
         newenv = newVar(name, varType, newenv);
         s"%$name = alloca ${Type.toLLVM(varType)}\n"
+      }
+      case Expr.DefValWithValue(variable, varType, value) => {
+        var newType = varType
+        val converted = convertLoc(value, env);
+        if(newType == Type.Undefined()) newType = converted._2;
+        if(makeUserTypesConcrete(newType) != converted._2) throw new Exception(s"mismatch when assigning value" +
+          s" to variable $variable, expected ${newType}, but got ${converted._2}")
+        val set = s"store ${Type.toLLVM(converted._2)} ${converted._3}, ${Type.toLLVM(converted._2)}* %$variable\n";
+        newenv = newVar(variable, newType, newenv);
+        s"%$variable = alloca ${Type.toLLVM(newType)}\n" + converted._1 + set;
       }
       case Expr.If(condition, ifTrue, ifFalse) => {
         def compare(left: Expr, right: Expr, numeric: Boolean): String =
@@ -288,14 +307,14 @@ object ToAssembly {
         }
         case (_, valType, _) => throw new Exception(s"expected an interface, got ${valType}")
       }
-      /*
       case Expr.ThrowException(err) => {
         val msg = AnsiColor.RED + "RuntimeException: " + err + AnsiColor.RESET
-        val name = s"exception_print_${stringLiterals.length}"
-        stringLiterals = stringLiterals :+ s"$name:\n        db  \"${msg}\", 10, 0\n"
-        s"mov rax, $name\n" + printTemplate("format_string") + "jmp exception\n"
+        val label = s"string.${stringLiterals.length}";
+        val n = msg.length+1;
+        stringLiterals = stringLiterals :+ s"@$label = internal constant [$n x i8] c\"$msg\""
+        val name = s"exception_print.${stringLiterals.length}"
+        s"mov rax, $name\n" + printTemplate("format_string", "i8*") + "jmp exception\n"
       }
-       */
       case x@Expr.CallObjFunc(obj, func) => convert(x, env)._1;
       case x@Expr.CallF(n, a) => convert(x, env)._1;
       case Expr.Return(in) => {
@@ -429,14 +448,15 @@ object ToAssembly {
   }
 
   def fNameSignature(info: FunctionInfo): String = fNameSignature(info.name, info.args.map(x=>x.varType))
-  def fNameSignature(name: String, args: List[Type]):String = name + (if(args.isEmpty) "" else "_") + args.map(x=>shortS(x)).mkString
+  def fNameSignature(name: String, args: List[Type]):String = name + (if(args.isEmpty) "" else ".") + args.map(x=>shortS(x)).mkString
 
   private def defineFunctions(input: List[(Expr.Func, Env)], lambdaMode: Boolean): String = {
     input.map{ case (function, upperScope) => {
       val info = functions.find(x=>x.name == function.name && x.args==function.argNames).get;
       functionScope = info;
+      val fname = fNameSignature(info)
       val args = info.args.map(x=>s"${Type.toLLVM(x.varType)} %Input.${x.name}").mkString(", ")
-      var ret = s"define ${Type.toLLVM(info.retType)} @${info.name}($args) {\n"
+      var ret = s"define ${Type.toLLVM(info.retType)} @${fname}($args) {\n"
       val newEnv = upperScope ++ info.args.map(x=> (x.name, Variable(x.varType))).toMap
       var body = info.args.map(x=>
         s"%${x.name} = alloca ${Type.toLLVM(x.varType)}\n" +
@@ -463,10 +483,11 @@ object ToAssembly {
       case Some(x) => ; case None => throw new Exception(s"function of name $name undefined");
     }
     functions.find(x=>x.name == name && Type.compare(argInputTypes, x.args.map(x=>makeUserTypesConcrete(x.varType)))) match {
-      case Some(FunctionInfo(p, argTypes, retType)) => {
+      case Some(info@FunctionInfo(p, argTypes, retType)) => {
+        val tName = fNameSignature(info)
         val argTypeString = argTypes.map(x=>Type.toLLVM(x.varType)).mkString(", ")
         if (retType != Type.Undefined()) ret += s"${varc.next()} = ";
-        ret += s"call ${Type.toLLVM(retType)} ($argTypeString) @$name($argsString)\n"
+        ret += s"call ${Type.toLLVM(retType)} ($argTypeString) @$tName($argsString)\n"
         (ret, retType)
       }
       case None => {
@@ -518,15 +539,16 @@ object ToAssembly {
     }
     case (_, x) => throw new Exception(s"Can not call variable of type $x");
   }
-
+  */
   def defineString(value: String, reg: List[String]): String = {
     //TODO Make definitions dynamic also
     //var ret = s"mov rdi, ${value.length+1}\n" + s"mov rsi, 8\n" + "call calloc\n" + "push rax\n" + "mov r9, rax\n";
-    val label = s"string_${stringLiterals.length}";
-    stringLiterals = stringLiterals :+ s"$label:\n        db  \"${value}\", 10, 0\n"
-    s"mov ${reg.head}, $label\n"
+    val label = s"string.${stringLiterals.length}";
+    val n = value.length+1;
+    stringLiterals = stringLiterals :+ s"@$label = internal constant [$n x i8] c\"$value\""
+    s"${varc.next()} = getelementptr inbounds ([$n x i8]*  @$label, i32 0, i32 0)"
   }
-   */
+
   def getArrayPointerIndex(arrType: Type, arrLoc: String, indexLoc: String): String = {
     val Tsig = Type.toLLVM(arrType)
     val arrTC = s"%Type.array.$Tsig"
@@ -633,9 +655,9 @@ object ToAssembly {
     (ret._1, ret._2, varc.last())
   }
   def convertType(input: Expr, env: Env): Type = {
-    varc.pauseToggle()
+    varc.pause()
     val ret = convert(input, env)._2
-    varc.pauseToggle()
+    varc.unpause()
     ret
   }
   def intBinOpTemplate(codeLeft: String, vLeft: String, codeRight: String, vRight: String, command: String): (String, Type) = {

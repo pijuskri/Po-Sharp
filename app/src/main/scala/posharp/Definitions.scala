@@ -28,7 +28,8 @@ object Expr{
 
   case class Print(value: Expr) extends Expr
   case class SetVal(variable: Expr, value: Expr) extends Expr
-  case class DefVal(variable: Expr, varType: Type) extends Expr
+  case class DefVal(variable: String, varType: Type) extends Expr
+  case class DefValWithValue(variable: String, varType: Type, value: Expr) extends Expr
   case class Block(lines: List[Expr]) extends Expr
   case class ExtendBlock(lines: List[Expr]) extends Expr
   case class While(condition: Expr, execute: Expr.Block) extends Expr
@@ -79,6 +80,7 @@ object Type {
   case class Character() extends Type
   case class Array(elemType: Type) extends Type
   case class Bool() extends Type
+  case class ConstantString() extends Type
   //case class Interface(properties: List[InputVar]) extends Type
   case class Interface(name: String, properties: List[InputVar], functions: List[FunctionInfo]) extends Type
   case class StaticInterface(properties: List[InputVar], functions: List[FunctionInfo]) extends Type
@@ -124,6 +126,7 @@ object Type {
     case Bool() => "i1"
     case Array(inner) => s"%Type.array.${toLLVM(inner)}*"
     case Undefined() => "void"
+    case ConstantString() => "i8*"
     //should be avoided, as usertype could be not a class
     case UserType(name) => s"%Class.$name*"
     case Interface(name, _, _) => s"%Class.$name*"

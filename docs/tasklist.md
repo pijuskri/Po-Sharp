@@ -1,7 +1,5 @@
 ## LLVM migration
 
-* fix overloading
-* allow for no type declaration
 * strings
 * conversions
 * lambdas

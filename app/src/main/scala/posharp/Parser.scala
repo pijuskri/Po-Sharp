@@ -67,8 +67,8 @@ object Parser {
     numberFloat | number | ident | constant | str | char | trueC | falseC)
 
   def defVal[_: P]: P[Expr.DefVal] = P("val " ~/ ident ~ typeDef.?).map {
-    case (ident, Some(varType)) => Expr.DefVal(ident, varType)
-    case (ident, None) => Expr.DefVal(ident, Type.Undefined())
+    case (ident, Some(varType)) => Expr.DefVal(ident.name, varType)
+    case (ident, None) => Expr.DefVal(ident.name, Type.Undefined())
   }
 
   def accessVar[_: P]: P[Expr] = P(ident ~ ((".".! ~ ident ~ "(".! ~ prefixExpr.rep(sep = ",") ~ ")") | (".".! ~ ident) | ("[".! ~/ prefixExpr ~ "]")).rep).map { case (start, acs) =>
@@ -104,7 +104,7 @@ object Parser {
     }
   }
 
-  def defAndSetVal[_: P] = P(defVal ~ "=" ~ prefixExpr).map(x => Expr.ExtendBlock(List(x._1, Expr.SetVal(x._1.variable, x._2))))
+  def defAndSetVal[_: P] = P(defVal ~ "=" ~/ prefixExpr).map(x => Expr.DefValWithValue(x._1.variable, x._1.varType, x._2))
 
   def defineLambda[_: P]: P[Expr.Lambda] = P("lambda" ~/ "(" ~ (ident ~ typeDef).rep(sep=",") ~ ")" ~ typeDef ~ "=>" ~/ (block | prefixExpr) ).map{ case (args, ret, body) => {
     val argsf = args.map(x=>InputVar(x._1.name, x._2)).toList
@@ -154,19 +154,6 @@ object Parser {
     case (value, "toFloat") => Expr.Convert(value, Type.NumFloat())
     case (value, "toChar") => Expr.Convert(value, Type.Character())
   }
-
-  /*
-  def binOp[_: P] = P(prefixExpr ~ StringIn("+", "-", "*", "/", "==", ">", "<").! ~/ prefixExpr).map({
-    case (l, "+", r) => Expr.Plus(l, r)
-    case (l, "-", r) => Expr.Minus(l, r)
-    case (l, "*", r) => Expr.Mult(l, r)
-    case (l, "/", r) => Expr.Div(l, r)
-    case (l, "==", r) => Expr.Equals(l,r)
-    case (l, "<", r) => Expr.LessThan(l,r)
-    case (l, ">", r) => Expr.MoreThan(l,r)
-    case _ => throw new ParseException("not bin p[")
-  })
-   */
 
   def callFunction[_: P]: P[Expr.CallF] = P(ident ~ "(" ~/ prefixExpr.rep(sep = ",") ~/ ")").map {
     case (name, args) => Expr.CallF(name.name, args.toList);
