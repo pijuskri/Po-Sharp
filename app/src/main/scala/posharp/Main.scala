@@ -81,7 +81,7 @@ object StringCode {
                      |    i32      ; 3: factor; the number of chars to preallocate when growing
                      |}
                      |
-                     |define fastcc void @String_Create_Default(%String* %this) nounwind {
+                     |define private fastcc void @String_Create_Default(%String* %this) nounwind {
                      |    ; Initialize 'buffer'.
                      |    %1 = getelementptr %String, %String* %this, i32 0, i32 0
                      |    store i8* null, i8** %1
@@ -102,7 +102,7 @@ object StringCode {
                      |}
                      |
                      |
-                     |define fastcc void @String_Delete(%String* %this) nounwind {
+                     |define private fastcc void @String_Delete(%String* %this) nounwind {
                      |    ; Check if we need to call 'free'.
                      |    %1 = getelementptr %String, %String* %this, i32 0, i32 0
                      |    %2 = load i8*, i8** %1
@@ -117,7 +117,7 @@ object StringCode {
                      |    ret void
                      |}
                      |
-                     |define fastcc void @String_Resize(%String* %this, i32 %value) {
+                     |define private fastcc void @String_Resize(%String* %this, i32 %value) {
                      |    ; %output = malloc(%value)
                      |    %output = call i8* @malloc(i32 %value)
                      |
@@ -146,7 +146,7 @@ object StringCode {
                      |    ret void
                      |}
                      |
-                     |define fastcc void @String_Add_Char(%String* %this, i8 %value) {
+                     |define private fastcc void @String_Add_Char(%String* %this, i8 %value) {
                      |    ; Check if we need to grow the string.
                      |    %1 = getelementptr %String, %String* %this, i32 0, i32 1
                      |    %length = load i32, i32* %1

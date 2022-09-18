@@ -68,7 +68,7 @@ object Expr{
 
   case class ThrowException(errorMsg: String) extends Expr
   case class Nothing() extends Expr
-  case class Compiled(code: String, raxType: Type) extends Expr
+  case class Compiled(code: String, raxType: Type, loc: String) extends Expr
   case class RawReference() extends Expr
 }
 

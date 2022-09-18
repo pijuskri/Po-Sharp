@@ -22,4 +22,4 @@ done
 
 files="${files_asm[*]}"
 
-gcc -O0 -ggdb -no-pie "$files" -o "hello"
+gcc -O0 -ggdb -no-pie $files -o "hello"

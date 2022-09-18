@@ -1,11 +1,12 @@
 package posharp
 
-import posharp.Type.{UserType, shortS}
+import posharp.Type.{UserType, shortS, toLLVM}
 
 import scala.io.AnsiColor
 
 class Counter {
-  private var counter = 1;
+  var counter = 1;
+  private var pausedCounter = 1;
   private var counterExtra = 0;
   private var paused = false;
   def next(): String = {
@@ -22,14 +23,13 @@ class Counter {
   def reset(): Unit = {
     counter = 1;
   }
-  def pauseToggle(): Unit = {
-    paused = !paused;
-  }
   def pause(): Unit = {
     paused = true;
+    pausedCounter = counter;
   }
   def unpause(): Unit = {
     paused = false;
+    counter = pausedCounter;
   }
 }
 
@@ -77,11 +77,9 @@ object ToAssembly {
     input match { case x: Expr.TopLevel => {
       declareFunctions(x);
       converted += declareInterfaces(x) + "\n";
-      /*
-      declareEnums(x)
-      converted += exportDeclarations(currentFile)
-      converted += handleImports(x, otherFiles)
-       */
+      //declareEnums(x)
+      converted += exportDeclarations(currentFile) + "\n"
+      converted += handleImports(x, otherFiles) + "\n"
       converted += defineFunctions(x.functions.map(y=>(y, Map())), false);
       converted += defineFunctions(x.interfaces.flatMap(intf=>
         intf.functions.map(func=>Expr.Func(intf.name + "_" + func.name, func.argNames, func.retType, func.body)))
@@ -90,7 +88,6 @@ object ToAssembly {
       );
     }}
     //converted += defineFunctions(lambdas, true);
-    //converted += "define void @exception() {\ncall void @exit(i32 1)\n}\n"
     converted += stringLiterals.mkString
     converted
   }
@@ -153,15 +150,18 @@ object ToAssembly {
         })
         (ret, Type.Bool())
       }
-      case Expr.DefineArray(size, elemType, defaultValues) => conv(size) match {
-        case (code, Type.Num()) => defineArray(code, elemType, defaultValues, env)
-        case (_, x) => throw new Exception(s"not number when defining array size, got input of type $x")
+      case Expr.DefineArray(size, elemType, defaultValues) => convertLoc(size, env) match {
+        case (code, Type.Num(), loc) => {
+          val r = defineArray(loc, elemType, defaultValues, env)
+          (code + r._1, r._2)
+        }
+        case (_, x, _) => throw new Exception(s"not number when defining array size, got input of type $x")
       }
       case Expr.GetArray(name, index) => getArray(name, index, env);
       case Expr.ArraySize(name) => getArraySize(name, env);
 
-      case Expr.GetProperty(obj, prop) => convert(obj, env) match {
-        case(code, Type.Interface(name, props, funcs)) => props.find(x=>x.name == prop) match {
+      case Expr.GetProperty(obj, prop) => convertLoc(obj, env) match {
+        case(code, Type.Interface(name, props, funcs), loc) => props.find(x=>x.name == prop) match {
           case Some(n) => {
             val intfDec = s"%Class.$name"
             val idx = props.indexOf(n);
@@ -175,8 +175,8 @@ object ToAssembly {
         //case (code, Type.StaticInterface(props, funcs)) =>
         case (code, Type.Enum(el)) => (s"mov ${reg.head}, 0${el.indexOf(prop)}d\n", Type.Num())
          */
-        case (code, Type.Array(a)) if prop == "size" => getArraySize(Expr.Compiled(code, Type.Array(a)), env)//conv(Expr.ArraySize(obj))
-        case valType => throw new Exception(s"expected a interface, got ${valType}")
+        case (code, Type.Array(a), loc) if prop == "size" => getArraySize(Expr.Compiled(code, Type.Array(a), loc), env)//conv(Expr.ArraySize(obj))
+        case (_, valType, _) => throw new Exception(s"expected a interface, got ${valType}")
       }
       case Expr.CallF(name, args) => {
         if(functions.exists(x=>x.name == name)) interpFunction(name, args, env)
@@ -191,11 +191,11 @@ object ToAssembly {
         case Some(intf) => {
           val struct_def = s"${varc.next()} = alloca %Class.$name\n"
 
-          val func_code = interpFunction(name+"_"+name, Expr.Compiled(struct_def, UserType(name)) +: values, env)._1
+          val func_code = interpFunction(name+"_"+name, Expr.Compiled(struct_def, UserType(name), varc.last()) +: values, env)._1
           val ret = func_code;
           (ret, Type.Interface(name, intf.args, intf.funcs))
         }
-        case None => throw new Exception(s"no such interface defined")
+        case None => throw new Exception(s"no interface with name \"$name\" defined")
       }
       case Expr.Str(value) => (defineString(value), Type.Str())
       /*
@@ -218,7 +218,7 @@ object ToAssembly {
       }
        */
       case Expr.Nothing() => ("", Type.Undefined());
-      case Expr.Compiled(code, retType) => (code, retType);
+      case Expr.Compiled(code, retType, _) => (code, retType);
       case Expr.Block(lines) => convertBlock(lines, env);
       case x => throw new Exception (s"$x is not interpreted yet :(");
     }
@@ -260,10 +260,11 @@ object ToAssembly {
         val falseLabel = s"if_${ifCounter}_false"
         val endLabel = s"if_${ifCounter}_end"
         ifCounter += 1;
-        val cond = convertType(condition, env) match {
-          case Type.Bool() => compare(condition, Expr.True(), false)
+        val cond = convertLoc(condition, env) match {
+          case (code, Type.Bool(), loc) => compare(Expr.Compiled(code, Type.Bool(), loc), Expr.True(), false)
           case t => throw new Exception(s"got type $t inside condition, expected bool")
         }
+        //val cond = compare(condition, Expr.True(), false)
         val ret = cond + s"br i1 ${varc.last()}, label %$trueLabel, label %$falseLabel\n" +
           s"${trueLabel}:\n" + convert(ifTrue, env)._1 + s"br label %$endLabel\n" + s"${falseLabel}:\n" +
           convert(ifFalse, env)._1 + s"br label %$endLabel\n" + s"$endLabel:\n"
@@ -373,27 +374,33 @@ object ToAssembly {
     input.imports.map(imp=>{
       if (!otherFiles.contains(imp.file)) throw new Exception(s"file \"${imp.file}\" could not be imported");
       val top = otherFiles(imp.file)
+      var ret = ""
 
       val funcsForImport = searchFileDeclarations(top, imp) match {
         case Expr.Func(name, argnames, retType, code) => {
           functions = functions :+ FunctionInfo(name, argnames, retType)
-          List(fNameSignature(FunctionInfo(name, argnames, retType)))
+          List(FunctionInfo(name, argnames, retType))
         }
         case Expr.DefineInterface(name, props, i_functions) => {
           val intf = InterfaceInfo(name, props, i_functions.map(x=>FunctionInfo(x.name,x.argNames,x.retType)))
           interfaces = interfaces :+ intf
+
+          val types = intf.args.map(x=>Type.toLLVM(x.varType)).mkString(", ")
+          ret += s"%Class.${intf.name} = type {$types}\n"
+
           val funcs = addPrefixToFunctions(intf.name,intf.funcs)
           functions = functions ::: funcs
-          funcs.map(x=>fNameSignature(FunctionInfo(x.name, x.args, x.retType)))
+          funcs.map(x=>FunctionInfo(x.name, x.args, x.retType))
         }
       }
-      funcsForImport.map(x=>{
-        val label = formatFName(imp.file) + "_" + x
-        s"extern $label\n" + s"${x}:\njmp $label\n"
+      ret + funcsForImport.map(info=>{
+        val name = fNameSignature(info)
+        val importName = formatFName(imp.file) + "_" + name
+        val args = info.args.map(x=>s"${Type.toLLVM(x.varType)}").mkString(", ")
+        s"declare ${Type.toLLVM(info.retType)} @${importName}($args)\n" +
+          s"@$name = ifunc ${toLLVM(info)}, ${toLLVM(info)}* @${importName}\n"
       }).mkString
       /*
-
-
       intf.funcs.map(x=>{
             val label = imp.file + "_" + x.name
             s"extern ${label}\n" + s"${x.name}:\njmp ${label}\n"
@@ -417,7 +424,7 @@ object ToAssembly {
       .map(info => {
         val formatFile = formatFName(file)
         val name = fNameSignature(info)
-        s"global ${formatFile}_${name}\n" + s"${formatFile}_${name}:\njmp ${name}\n"
+        s"@${formatFile}_${name} = external alias ${toLLVM(info)}, ${toLLVM(info)}* @${name}\n"
       }).mkString
 
   }
@@ -441,9 +448,14 @@ object ToAssembly {
 
   def fNameSignature(info: FunctionInfo): String = fNameSignature(info.name, info.args.map(x=>x.varType))
   def fNameSignature(name: String, args: List[Type]):String = name + (if(args.isEmpty) "" else ".") + args.map(x=>shortS(x)).mkString
+  def toLLVM(info: FunctionInfo): String = {
+    val args = info.args.map(x=>s"${Type.toLLVM(x.varType)}").mkString(", ")
+    s"${Type.toLLVM(info.retType)} ($args)"
+  }
 
   private def defineFunctions(input: List[(Expr.Func, Env)], lambdaMode: Boolean): String = {
     input.map{ case (function, upperScope) => {
+
       val info = functions.find(x=>x.name == function.name && x.args==function.argNames).get;
       functionScope = info;
       val fname = fNameSignature(info)
@@ -467,7 +479,7 @@ object ToAssembly {
   }
   def interpFunction(name: String, args: List[Expr], env: Env ): (String, Type) = {
     val argRet = args.map (arg => convertLoc(arg, env))
-    val argInputTypes = argRet.map(x => x._2)
+    val argInputTypes = argRet.map(x => makeUserTypesConcrete(x._2))
     var ret = argRet.map(x=>x._1).mkString
     val argsString = argRet.map(x=>s"${Type.toLLVM(x._2)} ${x._3}").mkString(", ")
 
@@ -483,7 +495,8 @@ object ToAssembly {
         (ret, retType)
       }
       case None => {
-        println(functions.find(x=>x.name == name).map(x=>x.args).mkString);
+        //println(Util.prettyPrint(functions.find(x=>x.name == name).map(x=>x.args.map(y=>InputVar(y.name,makeUserTypesConcrete(y.varType)))).get));
+        println(Util.prettyPrint(argInputTypes.last));
         throw new Exception(s"no overload of function $name matches argument list $argInputTypes")
       };
     }
@@ -551,9 +564,16 @@ object ToAssembly {
     var ret = "";
     ret += s"${varc.next()} = getelementptr $arrTC, $arrTC* $arrLoc, i32 0, i32 1\n"
     val arrStructLoc = varc.last()
-    ret += s"${varc.next()} = getelementptr inbounds $Tsig*, $Tsig** ${arrStructLoc}, i32 $indexLoc\n"
+    /*
+    ret += s"${varc.next()} = getelementptr $Tsig*, $Tsig** ${arrStructLoc}, i32 $indexLoc\n"
     val arrElemLoc = varc.last()
     ret += s"${varc.next()} = load $Tsig*, $Tsig** ${arrElemLoc}\n"
+
+     */
+    ret += s"${varc.next()} = load $Tsig*, $Tsig** ${arrStructLoc}\n"
+    ret += s"${varc.next()} = getelementptr $Tsig, $Tsig* ${varc.secondLast()}, i32 $indexLoc\n"
+    val arrElemLoc = varc.last()
+
     ret
   }
   def getArray(arr: Expr, index: Expr, env: Env): (String, Type) = (convertLoc(arr, env), convertLoc(index, env)) match {
@@ -577,6 +597,7 @@ object ToAssembly {
 
         var ret = code + indexCode + valCode;
         ret += getArrayPointerIndex(arrType, arrLoc, indexLoc)
+
         ret += s"store $Tsig $valLoc, $Tsig* ${varc.last()}\n"
         ret
     }
@@ -594,15 +615,21 @@ object ToAssembly {
     case (_, varType, _) => throw new Exception(s"trying to access variable ${arr} as an array, has type $varType")
   }
 
-  def defineArray(size: String, setElemType:Type, defaultValues: List[Expr], env: Env): (String, Type) = {
+  def defineArray(sizeLoc: String, setElemType:Type, defaultValues: List[Expr], env: Env): (String, Type) = {
     var elemType: Type = setElemType;
+    var valuesConverted = defaultValues.map(entry => {
+      val converted = convertLoc(entry, env)
+      if(elemType == Type.Undefined()) elemType = converted._2;
+      else if(converted._2 != elemType) throw new Exception(s"array elements are of different types")
+      converted
+    })
     val array_elem_size = arraySizeFromType(elemType);
     val Tsig = Type.toLLVM(elemType)
     val arrTC = s"%Type.array.$Tsig"
-    var ret = size;
-    val sizeLoc = varc.last()
+    var ret = "";
+    ret += valuesConverted.map(x=>x._1).mkString
     ret += s"${varc.next()} = call i64* (i32, i32) @calloc(i32 $sizeLoc, i32 $array_elem_size)\n";
-    ret += s"${varc.next()} = bitcast i64* ${varc.secondLast()} to $Tsig*"
+    ret += s"${varc.next()} = bitcast i64* ${varc.secondLast()} to $Tsig*\n"
     val arrLoc = varc.last()
     val sizeStructPointer = s"%arr.size.${varc.extra()}"
     val arrStructPointer = s"%arr.arr.${varc.extra()}"
@@ -613,14 +640,16 @@ object ToAssembly {
     ret += s"store i32 $sizeLoc, i32* ${sizeStructPointer}\n"
     ret += s"${arrStructPointer} = getelementptr $arrTC, $arrTC* $structLoc, i32 0, i32 1\n"
     ret += s"store $Tsig* $arrLoc, $Tsig** ${arrStructPointer}\n"
-    /*
-    var ret = defaultValues.zipWithIndex.map{case (entry, index) => {
-      val converted = convert(entry, defaultReg, env)
-      if(elemType == Type.Undefined()) elemType = converted._2;
-      else if(converted._2 != elemType) throw new Exception(s"array elements are of different types")
-      converted._1 + setArrayDirect("[rsp]", skipArrSize(index, arraySizeFromType(elemType)), arraySizeFromType(elemType));
+
+    ret += valuesConverted.zipWithIndex.map{case ((code, retTy, loc), index) => {
+      //val arrcode = convertLoc(Expr.Ident("a"), env)
+      //val idxcode = convertLoc(Expr.Num(0), env)
+      //Expr.Compiled("", Type.Array(elemType), structLoc)
+      //Expr.Compiled(idxcode._1, idxcode._2, idxcode._3)
+      //Expr.Compiled("", retTy, loc)
+      setArray(Expr.Compiled("", Type.Array(elemType), structLoc), Expr.Num(index), Expr.Compiled("", retTy, loc), env)
     }}.mkString;
-     */
+    ret += s"${varc.next()} = bitcast $arrTC* ${structLoc} to $arrTC*\n"
     (ret, Type.Array(elemType))
   }
   def arraySizeFromType(valtype: Type): Int = valtype match {
@@ -646,13 +675,21 @@ object ToAssembly {
   }
 
   def convertLoc(input: Expr, env: Env): (String, Type, String) = {
-    val ret = convert(input, env)
-    (ret._1, ret._2, varc.last())
+    input match {
+      case Expr.Compiled(code, ret, loc) => (code, ret, loc)
+      case _ => {
+        val ret = convert(input, env)
+        (ret._1, ret._2, varc.last())
+      }
+    }
+
   }
   def convertType(input: Expr, env: Env): Type = {
-    varc.pause()
+    varc.pause();
+    val c = varc.counter
     val ret = convert(input, env)._2
-    varc.unpause()
+    varc.unpause();
+    varc.counter = c;
     ret
   }
   def intBinOpTemplate(codeLeft: String, vLeft: String, codeRight: String, vRight: String, command: String): (String, Type) = {
