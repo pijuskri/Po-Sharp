@@ -17,7 +17,7 @@ files_asm=()
 for i in $files;
 do
     files_asm+=("$i".s)
-    llc "$i".ll
+    llc-15 "$i".ll -opaque-pointers
 done
 
 files="${files_asm[*]}"

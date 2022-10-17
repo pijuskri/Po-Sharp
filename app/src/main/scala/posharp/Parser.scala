@@ -4,6 +4,7 @@ import fastparse.JavaWhitespace._
 import fastparse._
 
 import Expr.GetProperty
+import scala.compat.Platform.EOL
 
 object Parser {
   //TODO fix issue when spacing at start of file
@@ -211,7 +212,7 @@ object Parser {
     Expr.Block(List(input._1, Expr.While(input._2, Expr.Block(input._4.lines :+ input._3))));
   })
 
-  def str[_: P]: P[Expr.Str] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(x => Expr.Str(x + "\u0000"))
+  def str[_: P]: P[Expr.Str] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(x => Expr.Str(x.replace("\\n", ""+10.toChar) + "\u0000"))
   def fileName[_: P]: P[Expr.Str] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(x => Expr.Str(x))
 
   def ident[_: P]: P[Expr.Ident] = P(CharIn("a-zA-Z_") ~~ CharsWhileIn("a-zA-Z0-9_", 0)).!.map((input) => {
@@ -222,7 +223,11 @@ object Parser {
 
   def numberFloat[_: P]: P[Expr.NumFloat] = P("-".? ~~ CharsWhileIn("0-9", 1) ~~ "." ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.NumFloat(x.toFloat))
 
-  def char[_: P]: P[Expr.Character] = P("'" ~/ AnyChar.! ~/ "'").map(x => Expr.Character(x.charAt(0)));
+  def char[_: P]: P[Expr.Character] = P("'" ~/ !"'" ~ (AnyChar.! | "\\n".!) ~/ "'").map(x => {
+    var c = x.charAt(0);
+    if(x.length == 2 && x=="\n") c = 10;
+    Expr.Character(c)
+  });
 
   def constant[_: P]: P[Expr] = P(trueC | falseC)
 

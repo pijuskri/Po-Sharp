@@ -33,7 +33,7 @@ object Main extends App {
 
     try {
        asm = ToAssembly.convertMain(code, file, declarations.filter(x => x._1 != file));
-       asm += StringCode.stringCode;
+       //asm += StringCode.stringCode;
     }
     catch {
       case x: Exception => {
