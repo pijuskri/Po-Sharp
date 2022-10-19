@@ -17,9 +17,11 @@ files_asm=()
 for i in $files;
 do
     files_asm+=("$i".s)
-    llc-15 "$i".ll -opaque-pointers
+    llc-15 "$i".ll -O0 -opaque-pointers --stackrealign --stack-size-section  --debugify-level=location+variables --frame-pointer=all -align-all-nofallthru-blocks=4 -align-all-functions=4
+    #  --stackrealign --asm-show-inst --align-loops=64
 done
 
 files="${files_asm[*]}"
 
-gcc -O0 -ggdb -no-pie $files -o "hello"
+#gcc -O0 -ggdb -mpreferred-stack-boundary=4 -no-pie $files -o "hello"
+clang-15 -O0 -no-pie $files -o "hello" # -mstack-alignment=4

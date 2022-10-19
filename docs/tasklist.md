@@ -2,7 +2,8 @@
 
 * conversions
 * lambdas
-* arrays with default value
+
+## Bugs
 
 ## To do
 

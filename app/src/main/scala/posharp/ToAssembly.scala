@@ -12,14 +12,14 @@ class Counter {
   def next(): String = {
     val cur = counter;
     if(!paused) counter += 1;
-    s"%$cur";
+    s"%l$cur";
   }
   def extra(): Int = {
     counterExtra += 1;
     counterExtra - 1;
   }
-  def last(): String = s"%${counter-1}";
-  def secondLast(): String = s"%${counter-2}";
+  def last(): String = s"%l${counter-1}";
+  def secondLast(): String = s"%l${counter-2}";
   def reset(): Unit = {
     counter = 1;
   }
@@ -64,13 +64,15 @@ object ToAssembly {
         | declare i8* @malloc(i32)
         | declare void @free(i8*)
         | declare i8* @memcpy(i8*, i8*, i32)
+        | declare void @setbuf(ptr noundef, ptr noundef)
         | declare void @exit(i32)
-        | @format_num = private constant [3 x i8] c"%d\00", align 1
-        | @format_float = private constant [3 x i8] c"%f\00", align 1
-        | @format_string = private constant [3 x i8] c"%s\00", align 1
-        | @format_char = private constant [3 x i8] c"%c\00", align 1
-        | @format_false = private constant [7 x i8] c"false\0A\00", align 1
-        | @format_true = private constant [7 x i8] c"true\0A\00\00", align 1
+        | @format_num = private constant [3 x i8] c"%d\00", align 16
+        | @format_float = private constant [3 x i8] c"%f\00", align 16
+        | @format_string = private constant [3 x i8] c"%s\00", align 16
+        | @format_char = private constant [3 x i8] c"%c\00", align 16
+        | @format_false = private constant [7 x i8] c"false\0A\00", align 16
+        | @format_true = private constant [7 x i8] c"true\0A\00\00", align 16
+        | @stdout = external global ptr, align 8
         | %Type.array.double = type {i32, double*}
         | %Type.array.i32 = type {i32, i32*}
         | %Type.array.i8 = type {i32, i8*}
@@ -92,7 +94,7 @@ object ToAssembly {
     }}
     //converted += defineFunctions(lambdas, true);
     converted += stringLiterals.mkString
-    converted += """attributes #0 = { mustprogress noinline norecurse optnone uwtable "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }
+    converted += """attributes #0 = { mustprogress noinline nounwind optnone uwtable "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }
                    |attributes #1 = { nocallback nofree nosync nounwind readnone speculatable willreturn }
                    |attributes #2 = { "frame-pointer"="all" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }""".stripMargin
     converted
@@ -171,8 +173,9 @@ object ToAssembly {
           case Some(n) => {
             val intfDec = s"%Class.$name"
             val idx = props.indexOf(n);
-            val ret = code + s"${varc.next()} = getelementptr $intfDec, $intfDec* ${varc.secondLast()}, i32 0, i32 $idx\n" +
-             s"${varc.next()} = load ${Type.toLLVM(n.varType)}, ${Type.toLLVM(n.varType)}* ${varc.secondLast()}, align 128\n"
+
+            val ret = code + s"${varc.next()} = getelementptr inbounds $intfDec, $intfDec* ${varc.secondLast()}, i32 0, i32 $idx\n" +
+             s"${varc.next()} = load ${Type.toLLVM(n.varType)}, ${Type.toLLVM(n.varType)}* ${varc.secondLast()}, align 8\n"
             (ret, n.varType)
           }
           case None => throw new Exception(s"interface ${interfaces.find(x=>x.args == props).get.name} does not have a property ${prop}")
@@ -195,7 +198,7 @@ object ToAssembly {
       }
       case Expr.InstantiateInterface(name, values) => interfaces.find(x=>x.name == name) match {
         case Some(intf) => {
-          val struct_def = s"${varc.next()} = alloca %Class.$name, align 128\n"
+          val struct_def = s"${varc.next()} = alloca %Class.$name, align 64\n"
 
           val func_code = interpFunction(name+"_"+name, Expr.Compiled(struct_def, UserType(name), varc.last()) +: values, env)._1
           val ret = func_code;
@@ -242,12 +245,12 @@ object ToAssembly {
         val converted = convertLoc(value, env);
         if(makeUserTypesConcrete(look.varType) != converted._2) throw new Exception(s"mismatch when assigning value" +
           s" to variable $name, expected ${look.varType}, but got ${converted._2}")
-        val set = s"store ${Type.toLLVM(converted._2)} ${converted._3}, ${Type.toLLVM(converted._2)}* %$name, align 128\n"
+        val set = s"store ${Type.toLLVM(converted._2)} ${converted._3}, ${Type.toLLVM(converted._2)}* %$name, align ${arraySizeFromType(converted._2)}\n"
         converted._1 + set;
       };
       case Expr.DefVal(name, varType) => {
         newenv = newVar(name, varType, newenv);
-        s"%$name = alloca ${Type.toLLVM(varType)}, align 128\n"
+        s"%$name = alloca ${Type.toLLVM(varType)}\n" //, align ${arraySizeFromType(varType)}
       }
       case Expr.DefValWithValue(variable, varType, value) => {
         var newType = varType
@@ -255,9 +258,9 @@ object ToAssembly {
         if(newType == Type.Undefined()) newType = converted._2;
         if(makeUserTypesConcrete(newType) != converted._2) throw new Exception(s"mismatch when assigning value" +
           s" to variable $variable, expected ${newType}, but got ${converted._2}")
-        val set = s"store ${Type.toLLVM(converted._2)} ${converted._3}, ${Type.toLLVM(converted._2)}* %$variable, align 128\n";
+        val set = s"store ${Type.toLLVM(converted._2)} ${converted._3}, ${Type.toLLVM(converted._2)}* %$variable, align ${arraySizeFromType(converted._2)}\n";
         newenv = newVar(variable, newType, newenv);
-        s"%$variable = alloca ${Type.toLLVM(newType)}, align 128\n" + converted._1 + set;
+        s"%$variable = alloca ${Type.toLLVM(newType)}, align 64\n" + converted._1 + set; //, align 4 ${arraySizeFromType(newType)}
       }
       case Expr.If(condition, ifTrue, ifFalse) => {
         def compare(left: Expr, right: Expr, numeric: Boolean): String =
@@ -301,7 +304,7 @@ object ToAssembly {
               val idx = props.indexOf(n);
               var ret = code + valCode
               ret += s"${varc.next()} = getelementptr $intfDec, $intfDec* $intfLoc, i32 0, i32 $idx\n"
-              ret += s"store ${Type.toLLVM(valType)} $valueLoc, ${Type.toLLVM(n.varType)}* ${varc.last()}, align 128\n"
+              ret += s"store ${Type.toLLVM(valType)} $valueLoc, ${Type.toLLVM(n.varType)}* ${varc.last()}, align ${arraySizeFromType(n.varType)}\n"
               ret
             }
             case (_, valType, _) => throw new Exception(s"trying to property ${n.name} of type ${n.varType} to incompatible type ${valType}")
@@ -312,7 +315,7 @@ object ToAssembly {
       }
       case Expr.ThrowException(err) => {
         val msg = AnsiColor.RED + "RuntimeException: " + err + AnsiColor.RESET + "\n"
-        defineString(msg) + printTemplate("format_string", "i8*") + "call void @exit(i32 1)\n" // "br label %exception\n"
+        defineString(msg) + printTemplate("format_string", "i8*", varc.last()) + "call void @exit(i32 1)\n" // "br label %exception\n"
       }
       case x@Expr.CallObjFunc(obj, func) => convert(x, env)._1;
       case x@Expr.CallF(n, a) => convert(x, env)._1;
@@ -466,12 +469,13 @@ object ToAssembly {
       functionScope = info;
       val fname = fNameSignature(info)
       val args = info.args.map(x=>s"${Type.toLLVM(x.varType)} %Input.${x.name}").mkString(", ")
-      var ret = s"define ${Type.toLLVM(info.retType)} @${fname}($args) {\n"
+      var ret = s"define ${Type.toLLVM(info.retType)} @${fname}($args) #0 {\n"
       val newEnv = upperScope ++ info.args.map(x=> (x.name, Variable(x.varType))).toMap
       var body = info.args.map(x=>
-        s"%${x.name} = alloca ${Type.toLLVM(x.varType)}, align 128\n" +
-        s"store ${Type.toLLVM(x.varType)} %Input.${x.name}, ${Type.toLLVM(x.varType)}* %${x.name}, align 128\n").mkString
+        s"%${x.name} = alloca ${Type.toLLVM(x.varType)}, align 64\n" + //, align ${arraySizeFromType(x.varType)}
+        s"store ${Type.toLLVM(x.varType)} %Input.${x.name}, ${Type.toLLVM(x.varType)}* %${x.name}\n").mkString //, align ${arraySizeFromType(x.varType)}
 
+      body += "%dummy = alloca i32\n"
       body += convert(function.body, newEnv)._1
 
       if(info.retType == Type.Undefined()) body += "ret void\n"
@@ -556,11 +560,11 @@ object ToAssembly {
     val n = value.length + 1;
     var toString = value.replace("\n", "\\0A") + "\\00"
     toString = toString.replace("\u0000", "\\00")
-    //%foo = bitcast i8* %1 to %Foo*
-    stringLiterals = stringLiterals :+ s"@$label = internal constant [$n x i8] c\"$toString\"\n" //
+
+    stringLiterals = stringLiterals :+ s"@$label = internal constant [$n x i8] c\"$toString\", align 16\n" //
     //s"${varc.next()} = getelementptr inbounds i8*, i8** @$label, i32 0, i32 0"
-    s"${varc.next()} = alloca i8*, align 128\n" +
-      s"${varc.next()} = bitcast [$n x i8]* @$label to i8*\n"
+    //s"${varc.next()} = alloca i8*, align 8\n" +
+      s"${varc.next()} = bitcast [$n x i8]* @$label to ptr\n"
       //s"store i8* @$label, i8** ${varc.last()}\n" +
       //s"${varc.next()} = load i8*, i8** ${varc.secondLast()}\n"
   }
@@ -597,7 +601,7 @@ object ToAssembly {
     var ret = "";
     ret += s"${varc.next()} = getelementptr $arrTC, ptr $arrLoc, i32 0, i32 1\n"
     val arrStructLoc = varc.last()
-    ret += s"${varc.next()} = load ptr, ptr ${arrStructLoc}, align 128\n"
+    ret += s"${varc.next()} = load ptr, ptr ${arrStructLoc}, align 8\n"
     ret += s"${varc.next()} = getelementptr inbounds $Tsig, ptr ${varc.secondLast()}, i32 $indexLoc\n"
 
     ret
@@ -616,7 +620,7 @@ object ToAssembly {
 
       var ret = code + indexCode;
       ret += getArrayPointerIndex(arrType, arrLoc, indexLoc)
-      ret += s"${varc.next()} = load $Tsig, $Tsig* ${varc.secondLast()}, align 128\n"
+      ret += s"${varc.next()} = load $Tsig, $Tsig* ${varc.secondLast()}, align ${arraySizeFromType(arrType)}\n"
       (ret, arrType)
     }
     case ((_, varType, _), _) => throw new Exception(s"trying to access variable ${arr} as an array, has type $varType")
@@ -631,7 +635,7 @@ object ToAssembly {
         var ret = code + indexCode + valCode;
         ret += getArrayPointerIndex(arrType, arrLoc, indexLoc)
 
-        ret += s"store $Tsig $valLoc, $Tsig* ${varc.last()}, align 128\n"
+        ret += s"store $Tsig $valLoc, $Tsig* ${varc.last()}, align ${arraySizeFromType(arrType)}\n"
         ret
     }
   }
@@ -642,7 +646,7 @@ object ToAssembly {
 
       val ret = code +
         s"${varc.next()} = getelementptr $arrTC, $arrTC* $loc, i32 0, i32 0\n" +
-        s"${varc.next()} = load $Tsig, $Tsig* ${varc.secondLast()}, align 128\n"
+        s"${varc.next()} = load $Tsig, $Tsig* ${varc.secondLast()}, align 4\n"
       (ret, Type.Num())
     }
     case (_, varType, _) => throw new Exception(s"trying to access variable ${arr} as an array, has type $varType")
@@ -666,13 +670,13 @@ object ToAssembly {
     val arrLoc = varc.last()
     val sizeStructPointer = s"%arr.size.${varc.extra()}"
     val arrStructPointer = s"%arr.arr.${varc.extra()}"
-    ret += s"${varc.next()} = alloca $arrTC, align 128\n"
+    ret += s"${varc.next()} = alloca $arrTC, align 128\n" //changing to 8 seems to cause fault
     val structLoc = varc.last()
 
     ret += s"${sizeStructPointer} = getelementptr $arrTC, $arrTC* $structLoc, i32 0, i32 0\n"
-    ret += s"store i32 $sizeLoc, i32* ${sizeStructPointer}, align 128\n"
+    ret += s"store i32 $sizeLoc, i32* ${sizeStructPointer}, align 4\n"
     ret += s"${arrStructPointer} = getelementptr $arrTC, $arrTC* $structLoc, i32 0, i32 1\n"
-    ret += s"store $Tsig* $arrLoc, $Tsig** ${arrStructPointer}, align 128\n"
+    ret += s"store $Tsig* $arrLoc, $Tsig** ${arrStructPointer}, align 8\n"
 
     ret += valuesConverted.zipWithIndex.map{case ((code, retTy, loc), index) => {
       setArray(Expr.Compiled("", Type.Array(elemType), structLoc), Expr.Num(index), Expr.Compiled("", retTy, loc), env)
@@ -683,15 +687,16 @@ object ToAssembly {
   def arraySizeFromType(valtype: Type): Int = valtype match {
     case Type.Undefined() => 8
     case Type.Character() => 1
-    case Type.Num() => 8
+    case Type.Num() => 4
     case Type.NumFloat() => 8
     case Type.Function(_,_) => 8
     case Type.T1() => 8
+    case _ => 8
   }
 
   def lookup(tofind: String, env: Env): (String, Variable) = {
     val ret = lookupOffset(tofind, env)
-    (s"${varc.next()} = load ${Type.toLLVM(ret.varType)}, ${Type.toLLVM(ret.varType)}* %$tofind, align 128\n", ret)
+    (s"${varc.next()} = load ${Type.toLLVM(ret.varType)}, ${Type.toLLVM(ret.varType)}* %$tofind, align ${arraySizeFromType(ret.varType)}\n", ret)
   }
   def lookupOffset(tofind: String, env: Env): Variable = env.get(tofind) match {
     case Some(v) => v
@@ -750,18 +755,23 @@ object ToAssembly {
   }
   */
 
-  def printTemplate(format: String, ty: String): String = {
-    s"%ret.${varc.extra()} = call i32 (i8*, ...) @printf(i8* getelementptr inbounds" +
+  def printTemplate(format: String, ty: String, loc: String): String = {
+    /*
+    s"%ret.${varc.extra()} = call i32 (ptr, ...) @printf(ptr getelementptr inbounds" +
       s" ([3 x i8], [3 x i8]* @$format, i32 0, i32 0), $ty ${varc.last()})\n"
+     */
+    s"%ret.${varc.extra()} = call i32 (ptr, ...) @printf(ptr @$format, $ty ${loc})\n" +
+      s"${varc.next()} = load ptr, ptr @stdout, align 8" +
+    s"call void @setbuf(ptr noundef ${varc.last()}, ptr noundef null)"
   }
   def printInterp(toPrint: Expr, env: Env): String = {
     val converted = convertLoc(toPrint, env)
     converted._2 match {
-      case Type.Num() => converted._1 + printTemplate("format_num", "i32");
-      case Type.Bool() => converted._1 + printTemplate("format_num", "i1");
-      case Type.NumFloat() => converted._1 + printTemplate("format_float", "double");
-      case Type.Str() => converted._1 + printTemplate("format_string", "i8*");
-      case Type.Character() => converted._1 + printTemplate("format_char", "i8");
+      case Type.Num() => converted._1 + printTemplate("format_num", "i32", converted._3);
+      case Type.Bool() => converted._1 + printTemplate("format_num", "i1", converted._3);
+      case Type.NumFloat() => converted._1 + printTemplate("format_float", "double", converted._3);
+      case Type.Str() => converted._1 + printTemplate("format_string", "ptr", converted._3);
+      case Type.Character() => converted._1 + printTemplate("format_char", "i8", converted._3);
       case Type.Interface(a,b,c) => convert(Expr.CallObjFunc(Expr.Compiled(converted._1, converted._2, converted._3), Expr.CallF("__print__", List())), env)._1
       /*
       case Type.Bool() => converted._1 + s"cmp rax, 0\nje bool_${ifCounter}\n" + printTemplate("format_true") +
