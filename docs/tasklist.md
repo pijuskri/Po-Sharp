@@ -2,8 +2,11 @@
 
 * conversions
 * lambdas
+* add copy command to arrays 
+* use malloc, currently struct alloc is wrong(always on stack, issues when used in fuctions)
 
 ## Bugs
+
 
 ## To do
 

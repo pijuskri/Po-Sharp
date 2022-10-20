@@ -61,12 +61,13 @@ object ToAssembly {
         |
         | declare i32 @printf(i8*, ...)
         | declare i64* @calloc(i32, i32)
-        | declare i8* @malloc(i32)
-        | declare void @free(i8*)
-        | declare i8* @memcpy(i8*, i8*, i32)
+        | declare ptr @malloc(i32)
+        | declare void @free(ptr)
+        | declare ptr @memcpy(ptr, ptr, i32)
         | declare void @setbuf(ptr noundef, ptr noundef)
         | declare void @exit(i32)
         | @format_num = private constant [3 x i8] c"%d\00", align 16
+        | @format_uint = private constant [4 x i8] c"%lu\00", align 16
         | @format_float = private constant [3 x i8] c"%f\00", align 16
         | @format_string = private constant [3 x i8] c"%s\00", align 16
         | @format_char = private constant [3 x i8] c"%c\00", align 16
@@ -202,6 +203,7 @@ object ToAssembly {
 
           val func_code = interpFunction(name+"_"+name, Expr.Compiled(struct_def, UserType(name), varc.last()) +: values, env)._1
           val ret = func_code;
+          println(Expr.Compiled(struct_def, UserType(name), varc.last()) +: values)
           (ret, Type.Interface(name, intf.args, intf.funcs))
         }
         case None => throw new Exception(s"no interface with name \"$name\" defined")
@@ -620,7 +622,7 @@ object ToAssembly {
 
       var ret = code + indexCode;
       ret += getArrayPointerIndex(arrType, arrLoc, indexLoc)
-      ret += s"${varc.next()} = load $Tsig, $Tsig* ${varc.secondLast()}, align ${arraySizeFromType(arrType)}\n"
+      ret += s"${varc.next()} = load $Tsig, $Tsig* ${varc.secondLast()}\n" //${arraySizeFromType(arrType)}
       (ret, arrType)
     }
     case ((_, varType, _), _) => throw new Exception(s"trying to access variable ${arr} as an array, has type $varType")
@@ -670,7 +672,7 @@ object ToAssembly {
     val arrLoc = varc.last()
     val sizeStructPointer = s"%arr.size.${varc.extra()}"
     val arrStructPointer = s"%arr.arr.${varc.extra()}"
-    ret += s"${varc.next()} = alloca $arrTC, align 128\n" //changing to 8 seems to cause fault
+    ret += s"${varc.next()} = alloca $arrTC\n" //changing to 8 seems to cause fault
     val structLoc = varc.last()
 
     ret += s"${sizeStructPointer} = getelementptr $arrTC, $arrTC* $structLoc, i32 0, i32 0\n"
@@ -681,7 +683,16 @@ object ToAssembly {
     ret += valuesConverted.zipWithIndex.map{case ((code, retTy, loc), index) => {
       setArray(Expr.Compiled("", Type.Array(elemType), structLoc), Expr.Num(index), Expr.Compiled("", retTy, loc), env)
     }}.mkString;
-    ret += s"${varc.next()} = bitcast $arrTC* ${structLoc} to $arrTC*\n"
+
+    //ret += s"${varc.next()} = getelementptr $arrTC, $arrTC* null, i32 1\n" + s"${varc.next()} = ptrtoint $arrTC** ${varc.secondLast()} to i32\n"
+    //ret += s"call i32 (ptr, ...) @printf(ptr @format_num, i32 ${varc.last()})\n"
+    ret += s"${varc.next()} = add i32 8, 8\n"
+    val bytesLoc = varc.last();
+    ret += s"${varc.next()} = call ptr (i32) @malloc(i32 $bytesLoc)\n";
+    val alocLoc = varc.last();
+    ret += s"call ptr @memcpy(ptr $alocLoc, ptr $structLoc, i32 $bytesLoc)\n"
+
+    ret += s"${varc.next()} = bitcast $arrTC* $alocLoc to $arrTC*\n"
     (ret, Type.Array(elemType))
   }
   def arraySizeFromType(valtype: Type): Int = valtype match {
@@ -779,6 +790,7 @@ object ToAssembly {
 
       case Type.Array(Type.Character()) => converted._1 + "add rax, 8\n" + printTemplate("format_string");
        */
+      case Type.Array(_) => converted._1 + s"${varc.next()} = ptrtoint ptr ${converted._3} to i64\n" + printTemplate("format_uint", "i64", varc.last());
       case _ => throw new Exception(s"input of type ${converted._2} not recognized in print")
     }
   }
