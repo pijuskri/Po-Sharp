@@ -26,7 +26,6 @@ object Expr{
   case class Not(condition: Expr) extends Expr
   //case class RetIf(condition: Expr, ifTrue: Expr, ifFalse: Expr) extends Expr
 
-  case class Print(value: Expr) extends Expr
   case class SetVal(variable: Expr, value: Expr) extends Expr
   case class DefVal(variable: String, varType: Type) extends Expr
   case class DefValWithValue(variable: String, varType: Type, value: Expr) extends Expr
@@ -65,6 +64,9 @@ object Expr{
 
   case class TopLevel(functions: List[Func], interfaces: List[DefineInterface], enums: List[DefineEnum], imports: List[Import]) extends Expr
   case class Import(toImport: String, file: String) extends Expr
+
+  case class Print(value: Expr) extends Expr
+  case class Free(value: Expr) extends Expr
 
   case class ThrowException(errorMsg: String) extends Expr
   case class Nothing() extends Expr

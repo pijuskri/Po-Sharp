@@ -62,7 +62,7 @@ object Parser {
 
   def line[_: P]: P[Expr] = P(expr ~/ ";")
 
-  def expr[_: P]: P[Expr] = P(arrayDef | arrayDefDefault | defAndSetVal | defVal | NoCut(setVar) | callFuncInLine | retFunction | IfOp | whileLoop | forLoop | print | callFunction | throwException)
+  def expr[_: P]: P[Expr] = P(arrayDef | arrayDefDefault | defAndSetVal | defVal | NoCut(setVar) | callFuncInLine | retFunction | IfOp | whileLoop | forLoop | print | free | callFunction | throwException)
 
   def prefixExpr[_: P]: P[Expr] = P( NoCut(callFunction) | defineLambda | NoCut(convert) | NoCut(parens) | NoCut(condition) | arrayDef | arrayDefDefault | instanceInterface | accessVar | NoCut(getArraySize) |
     numberFloat | number | ident | constant | str | char | trueC | falseC)
@@ -236,6 +236,7 @@ object Parser {
   def falseC[_: P]: P[Expr.False] = P("false").map(_ => Expr.False())
 
   def print[_: P]: P[Expr.Print] = P("print" ~ "(" ~/ (NoCut(binOp) | prefixExpr) ~ ")").map(Expr.Print)
+  def free[_: P]: P[Expr.Free] = P("free" ~ "(" ~/ (prefixExpr) ~ ")").map(Expr.Free)
 
   def throwException[_: P]: P[Expr.ThrowException] = P("throw" ~/ "exception" ~/ "(" ~/ str ~/ ")").map(x => Expr.ThrowException(x.s.dropRight(1)))
 

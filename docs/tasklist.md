@@ -1,22 +1,22 @@
 ## LLVM migration
 
-* conversions
 * lambdas
-* add copy command to arrays 
-* use malloc, currently struct alloc is wrong(always on stack, issues when used in fuctions)
 
 ## Bugs
-
+* for some reason imports are still done in files
+* functions have limited checking before llvm catches it (especially multiple constructors)
 
 ## To do
 
+* add copy command to arrays(and maybe structs)
+* rework file imports with explicit export command
+* add more object intrinsics(equal)
 * file name in error messages
 * line numbers in compiler
 * static variables
 * add prinf
-* Prevent array deferencing (point to a pointer that points to array)
+
 * infer self in object functions
-* Add array copy function
 * add method to get all interface arguments/names
 * function reflection(do this by declaring labels in file with strings and var names)
 * parser error reporting
@@ -24,6 +24,7 @@
 * add runtime index checking for arrays
 * optimise string to char array conversion
 
+* ~~Prevent array deferencing (point to a pointer that points to array)~~
 * ~~booleans~~
 * ~~change functions names to consider their object~~
 * ~~make self auto-pass~~

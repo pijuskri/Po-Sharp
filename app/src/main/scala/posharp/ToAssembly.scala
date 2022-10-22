@@ -3,6 +3,7 @@ package posharp
 import posharp.Type.{UserType, shortS, toLLVM}
 
 import scala.io.AnsiColor
+import scala.language.postfixOps
 
 class Counter {
   var counter = 1;
@@ -199,27 +200,38 @@ object ToAssembly {
       }
       case Expr.InstantiateInterface(name, values) => interfaces.find(x=>x.name == name) match {
         case Some(intf) => {
-          val struct_def = s"${varc.next()} = alloca %Class.$name, align 64\n"
+          var aloc = "";
+          val classT = s"%Class.$name"
+          //ret += s"${varc.next()} = alloca %Class.$name, align 64\n"
 
-          val func_code = interpFunction(name+"_"+name, Expr.Compiled(struct_def, UserType(name), varc.last()) +: values, env)._1
+          aloc += s"${varc.next()} = getelementptr $classT, $classT* null, i32 1\n" + s"${varc.next()} = ptrtoint $classT** ${varc.secondLast()} to i32\n"
+          val bytesLoc = varc.last();
+          aloc += s"${varc.next()} = call ptr (i32) @malloc(i32 $bytesLoc)\n";
+          val alocLoc = varc.last();
+
+          val valuesCompiled = values.map(x=>convertLoc(x, env)).map(x=>Expr.Compiled(x._1, x._2, x._3))
+          intf.funcs.find(x=>x.name == name && x.args == values)
+          val func_code = interpFunction(name+"_"+name, Expr.Compiled(aloc, UserType(name), varc.last()) +: valuesCompiled, env)._1
           val ret = func_code;
-          println(Expr.Compiled(struct_def, UserType(name), varc.last()) +: values)
           (ret, Type.Interface(name, intf.args, intf.funcs))
         }
         case None => throw new Exception(s"no interface with name \"$name\" defined")
       }
       case Expr.Str(value) => (defineString(value), Type.Str())
-      /*
-      case Expr.Convert(value, valType: Type) => (convert(value, reg, env), valType) match {
-        case ((code, Type.Num()), Type.NumFloat()) => (code + convertToFloat(reg.head), valType)
-        case ((code, Type.NumFloat()), Type.Num()) => (code + convertToInt(reg.head), valType)
-        case ((code, Type.Num()), Type.Character()) => (code, valType)
-        case ((code, l), r) => throw new Exception(s"cant convert from type ${l} to type $r")
+      case Expr.Character(value) => (s"${varc.next()} = add i8 0, ${value.toInt}\n", Type.Character())
+      case Expr.Convert(value, valType: Type) => (convertLoc(value, env), valType) match {
+        case ((code, Type.Num(), loc), Type.NumFloat()) => (code + s"${varc.next()} = sitofp ${Type.toLLVM(Type.Num())} $loc to ${Type.toLLVM(Type.NumFloat())}\n", valType)
+        case ((code, Type.NumFloat(), loc), Type.Num()) => (code + s"${varc.next()} = fptosi ${Type.toLLVM(Type.NumFloat())} $loc to ${Type.toLLVM(Type.Num())}\n", valType)
+        case ((code, Type.Num(), loc), Type.Character()) => (code + s"${varc.next()} = sext ${Type.toLLVM(Type.Num())} $loc to ${Type.toLLVM(Type.Character())}\n", valType)
+        case ((code, Type.Character(), loc), Type.Num()) => (code + s"${varc.next()} = trunc ${Type.toLLVM(Type.Character())} $loc to ${Type.toLLVM(Type.Num())}\n", valType)
+        case ((code, l, _), r) => throw new Exception(s"cant convert from type ${l} to type $r")
       }
+      /*
+
 
       //
       case Expr.Str(value) => (defineArrayKnown(value.length, Type.Character(), value.map(x=>Expr.Character(x)).toList, env)._1, Type.Array(Type.Character()))
-      case Expr.Character(value) => (s"mov ${reg.head}, ${value.toInt}\n", Type.Character())
+
 
       case Expr.Lambda(args, ret, body) => {
         val label = "lambda_" + lambdas.size
@@ -275,7 +287,6 @@ object ToAssembly {
           case (code, Type.Bool(), loc) => compare(Expr.Compiled(code, Type.Bool(), loc), Expr.True(), false)
           case t => throw new Exception(s"got type $t inside condition, expected bool")
         }
-        //val cond = compare(condition, Expr.True(), false)
         val ret = cond + s"br i1 ${varc.last()}, label %$trueLabel, label %$falseLabel\n" +
           s"${trueLabel}:\n" + convert(ifTrue, env)._1 + s"br label %$endLabel\n" + s"${falseLabel}:\n" +
           convert(ifFalse, env)._1 + s"br label %$endLabel\n" + s"$endLabel:\n"
@@ -331,14 +342,13 @@ object ToAssembly {
           }
           case None => "ret void\n";
         }
-        /*
-        val defInside = (env.keys.toSet diff functionScope.args.map(x=>x.name).toSet);
-        //TODO fix issue when 2 variables reference same location
-        val free = "" //freeMemory(env.filter(x=>defInside.contains(x._1)))
-        */
-
       }
       case Expr.Print(toPrint) => printInterp(toPrint, env);
+      case Expr.Free(toFree) => convertLoc(toFree, env) match {
+        case (code, _:Type.Array | _:Type.UserType | _:Type.Interface, loc) => {
+          code + s"call void @free(ptr $loc)\n"
+        }
+      }
       case x@Expr.Block(n) => convert(x, env)._1;
       case Expr.ExtendBlock(n) => extendLines = extendLines.head +: n ::: extendLines.tail;""
       case _ => throw new Exception(lines.head.toString + " should not be in block lines")
@@ -575,31 +585,6 @@ object ToAssembly {
     val Tsig = Type.toLLVM(arrType)
     val arrTC = s"%Type.array.$Tsig"
 
-    /*
-    var ret = "";
-    ret += s"${varc.next()} = getelementptr $arrTC, $arrTC* $arrLoc, i32 0, i32 1\n"
-    val arrStructLoc = varc.last()
-    ret += s"${varc.next()} = load $Tsig*, $Tsig** ${arrStructLoc}\n"
-    ret += s"${varc.next()} = getelementptr $Tsig, $Tsig* ${varc.secondLast()}, i32 $indexLoc\n"
-
-     */
-
-    /*
-    var ret = "";
-    ret += s"${varc.next()} = getelementptr $arrTC, $arrTC* $arrLoc, i32 0, i32 1\n"
-    val arrStructLoc = varc.last()
-    ret += s"${varc.next()} = getelementptr inbounds $Tsig*, $Tsig** ${arrStructLoc}, i32 $indexLoc\n"
-    val arrElemLoc = varc.last()
-    ret += s"${varc.next()} = load $Tsig*, $Tsig** ${arrElemLoc}\n"
-     */
-
-    /*
-    var ret = "";
-    ret += s"${varc.next()} = getelementptr $arrTC, $arrTC* $arrLoc, i32 0, i32 1\n"
-    val arrStructLoc = varc.last()
-    ret += s"${varc.next()} = load $Tsig*, $Tsig** ${arrStructLoc}, align 128\n"
-    ret += s"${varc.next()} = getelementptr $Tsig, $Tsig* ${varc.secondLast()}, i32 $indexLoc\n"
-     */
     var ret = "";
     ret += s"${varc.next()} = getelementptr $arrTC, ptr $arrLoc, i32 0, i32 1\n"
     val arrStructLoc = varc.last()
@@ -608,13 +593,7 @@ object ToAssembly {
 
     ret
   }
-  /*
-  %9 = getelementptr inbounds %struct.arr, ptr %2, i32 0, i32 1
-  %10 = load ptr, ptr %9, align 8
-  %11 = getelementptr inbounds i32, ptr %10, i64 0
-  %12 = load i32, ptr %11, align 4
-  store i32 %12, ptr %4, align 4
-   */
+
   def getArray(arr: Expr, index: Expr, env: Env): (String, Type) = (convertLoc(arr, env), convertLoc(index, env)) match {
     case ((code, Type.Array(arrType), arrLoc), (indexCode, indexType, indexLoc)) => {
       if(indexType != Type.Num()) throw new Exception(s"wrong index for array, got $indexType");
@@ -643,7 +622,7 @@ object ToAssembly {
   }
   def getArraySize(arr: Expr, env: Env): (String, Type) = convertLoc(arr, env) match {
     case (code, Type.Array(arrType), loc) => {
-      val Tsig = Type.toLLVM(arrType)
+      val Tsig = "i32"
       val arrTC = s"%Type.array.$Tsig"
 
       val ret = code +
@@ -750,8 +729,16 @@ object ToAssembly {
       case ((codeLeft, Type.NumFloat(), vLeft), (codeRight, Type.NumFloat(), vRight)) =>
         if(command == "sdiv") floatBinOpTemplate(codeLeft, vLeft, codeRight, vRight, "div")
         else floatBinOpTemplate(codeLeft, vLeft, codeRight, vRight, command)
-      //case ((codeLeft, Type.Num()), (codeRight, Type.NumFloat())) => floatTemplate(codeLeft + convertToFloat(reg.head), codeRight, commandFloat, reg)
-      //case ((codeLeft, Type.NumFloat()), (codeRight, Type.Num())) => floatTemplate(codeLeft, codeRight + convertToFloat(reg.tail.head), commandFloat, reg)
+      case ((codeLeft, Type.Num(), vLeft), (codeRight, Type.NumFloat(), vRight)) => {
+        val con = s"${varc.next()} = sitofp ${Type.toLLVM(Type.Num())} $vLeft to ${Type.toLLVM(Type.NumFloat())}\n"
+        if(command == "sdiv") floatBinOpTemplate(codeLeft+con, varc.last(), codeRight, vRight, "div")
+        else floatBinOpTemplate(codeLeft+con, varc.last(), codeRight, vRight, command)
+      }
+      case ((codeLeft, Type.NumFloat(), vLeft), (codeRight, Type.Num(), vRight)) => {
+        val con = s"${varc.next()} = sitofp ${Type.toLLVM(Type.Num())} $vRight to ${Type.toLLVM(Type.NumFloat())}\n"
+        if(command == "sdiv") floatBinOpTemplate(codeLeft, vLeft, codeRight+con, varc.last(), "div")
+        else floatBinOpTemplate(codeLeft, vLeft, codeRight+con, varc.last(), command)
+      }
       case ((codeLeft, tyLeft: Type.Interface, vLeft), (codeRight, tyRight: Type.Interface, vRight)) if (tyLeft == tyRight && command == "add") =>
         convert(Expr.CallObjFunc(Expr.Compiled(codeLeft, tyLeft, vLeft), Expr.CallF("__add__", List(Expr.Compiled(codeRight, tyRight, vRight)))), env)
       case ((codeLeft, typeLeft, x), (codeRight, typeRight, y)) => throw new Exception(s"can't perform arithmetic on operands of types ${typeLeft} and ${typeRight}");
@@ -790,7 +777,7 @@ object ToAssembly {
 
       case Type.Array(Type.Character()) => converted._1 + "add rax, 8\n" + printTemplate("format_string");
        */
-      case Type.Array(_) => converted._1 + s"${varc.next()} = ptrtoint ptr ${converted._3} to i64\n" + printTemplate("format_uint", "i64", varc.last());
+      //case Type.Array(_) => converted._1 + s"${varc.next()} = ptrtoint ptr ${converted._3} to i64\n" + printTemplate("format_uint", "i64", varc.last());
       case _ => throw new Exception(s"input of type ${converted._2} not recognized in print")
     }
   }
