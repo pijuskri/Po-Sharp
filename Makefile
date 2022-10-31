@@ -6,7 +6,7 @@ all: run_llvm
 build:
 	mkdir -p compiled && \
 	cd compiled/ && \
-	llc $(TARGET_FILE).ll && \
+	llc $(TARGET_FILE).ll -opaque-pointers && \
 	gcc -O0 -ggdb -no-pie $(TARGET_FILE).s -o $(TARGET_FILE)
 	compiled/$(TARGET_FILE)
 
