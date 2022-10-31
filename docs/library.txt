@@ -1,36 +1,16 @@
+def ok() {
+};
 /*
-def apply(a: int, b: int, f: func[(int, int) => int]): int {
-    return f(a, b);
-}
-def main(): int {
-    val c = 5;
-    val a = lambda (x: int, y: int): int => (x + y + c);
-    val b = apply(5,6,a);
-    print(b);
-}
-*/
-
 object Dynamic {
     size: int;
     allocated: int;
     arr: array[int];
-    map: func[(func[(int) => int]) => Dynamic];
-    def Dynamic(self: Dynamic) {
-        self.arr = array[int][4];
-        self.allocated = 4;
+    def Dynamic(self: Dynamic): Dynamic {
+        self.arr = array[int][128];
+        self.allocated = 128;
         self.size = 0;
-
-        self.map = lambda (f: func[(int) => int]): Dynamic => {
-            val ret = self.copy();
-
-            for(val i = 0; i < self.size; i+= 1;) {
-               ret.arr[i] = f(ret.arr[i]);
-            };
-            return ret;
-        };
-
+        return self;
     }
-	
     def expand(self: Dynamic, req: int) {
 		val total = (req + self.size);
 		if(total >= self.allocated) {
@@ -39,10 +19,11 @@ object Dynamic {
 				newsize = (newsize * 2);
 			};
 			val old = self.arr;
-			self.arr = array[int][newsize];
+			val narr = array[int][newsize];
 			for(val i = 0; i < self.size; i+= 1;) {
-				self.arr[i] = old[i];
+				narr[i] = old[i];
 			};
+			self.arr = narr;
 			self.allocated = newsize;
 			self.size = total;
 		} else {
@@ -53,16 +34,15 @@ object Dynamic {
         self.expand(1);
         self.arr[(self.size-1)] = value;
     }
-
     def push(self: Dynamic, value: array[int]) {
         val oldSize = self.size;
         self.expand(value.size);
-		
+
         for(val i = 0; i < value.size; i+= 1;) {
             self.arr[(i + oldSize)] = value[i];
         };
     }
-	
+
 	def push(self: Dynamic, value: Dynamic) {
        val oldSize = self.size;
        self.expand(value.size);
@@ -71,9 +51,10 @@ object Dynamic {
            self.arr[(i + oldSize)] = value.arr[i];
        };
     }
-	
+
     def concat(self: Dynamic, other: Dynamic): Dynamic {
         val ret = self.copy();
+        //ret.print_arr();
         ret.push(other);
         return ret;
     }
@@ -85,64 +66,43 @@ object Dynamic {
         return self.arr[index];
     }
     def print_arr(self: Dynamic) {
+        //print(self.size);
+
         for(val i = 0; i < self.size; i+= 1;) {
-            print(self.arr[i]);
+            //print(i);
+            //print(" ");
+            //print(self.arr[i]);
+            //print(self.size);
+            //print("l");
         };
+
+        //print(self.size);
+        //print("\n");
     }
     def copy(self: Dynamic): Dynamic {
         val arr_new = new Dynamic();
         for(val i = 0; i < self.size; i+= 1;) {
-           arr_new.push(self.arr[i]);
+           //arr_new.push(self.arr[i]);
         };
         return arr_new;
     }
     def compare(self: Dynamic, other: Dynamic): bool {
         val same: bool = true;
-        if(self.size != other.size) {return false;};
+        //if(self.size != other.size) {return false;};
         for(val i = 0; i < self.size; i+= 1;) {
             if(self.get(i) != other.get(i)) {same = false;};
         };
         return same;
     }
-}
-def main(): int {
+    def __add__(self: Dynamic, other: Dynamic): Dynamic {
+        return self.concat(other);
+    }
+    def __print__(self: Dynamic) {
+        self.print_arr();
+    }
+    def not_useful() {
+        print("not useful, you're dumb");
+    }
 
-    val a = new Dynamic();
-    a.push(array(3,5,5,7,8));
-    a.print_arr();
-    print("");
-    a
-     .map(lambda(x: int): int => (x * x))
-     .print_arr();
-}
-
-
-
-/*
-def main(): int {
-    val a = array(1,2,3);
-    val b = array(4,5,6);
-    val c = concat(a,b);
-    print_arr(c);
-    return 0;
-}
-def concat(a: array[T1], b: array[T1]): array[T1] {
-    val combined = (a.size + b.size);
-    val ret = array[T1][combined];
-    for(val i = 0; i < a.size; i += 1;) {
-        ret[i] = a[i];
-    };
-    for(val i = 0; i < b.size; i += 1;) {
-        ret[(i + a.size)] = b[i];
-    };
-    return ret;
-}
-def print_arr(a: array[int]) {
-    val b = 0;
-    while(b < a.size) {
-        print(a[b]);
-        b += 1;
-    };
-    return;
 }
 */

@@ -168,5 +168,8 @@ gradle-app.setting
 # JDT-specific (Eclipse Java Development Tools)
 .classpath
 
-toCompile.txt
+!po_src/lib/
+po_src
 coverage.json
+pwndbg/
+debugir

@@ -1,0 +1,8 @@
+cd compiled/
+../debugir toCompile.ll -instnamer
+gdb lli-14
+run --jit-kind=mcjit toCompile.dbg.ll
+
+
+clang -mstackrealign
+gcc -mpreferred-stack-boundary=3

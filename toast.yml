@@ -1,0 +1,52 @@
+image: antoniosbarotsis/posharp-veritas
+command_prefix: set -e # Make Bash fail fast.
+
+tasks:
+  build_dependencies:
+    command: |
+      ./gradlew clean build --no-daemon 2>&1 || true
+    description: "Builds and caches all the used libraries to speedup subsequent steps."
+    input_paths:
+      - gradlew
+      - gradle
+      - build.gradle.kts
+      - gradle.properties
+      - settings.gradle.kts
+      - app/build.gradle.kts
+      - app/settings.gradle.kts
+      - veritas/build.gradle.kts
+      - veritas/settings.gradle.kts
+
+  build:
+    command: |
+      # Skip separate build stage locally to save time
+      if [[ -z "${CI}" ]]; then
+        echo "Not in CI environment, skipping build stage..."
+      else
+        ./gradlew clean build --no-daemon
+      fi
+    dependencies:
+      - build_dependencies
+    description: "Performs a `gradle build`. Only runs in the CI environment to save time."
+    environment:
+      CI: ''
+    excluded_input_paths:
+      - 'bin'
+      - 'build'
+    input_paths:
+      - '.'
+
+  test:
+    cache: false
+    command: |
+      ./gradlew runCoverage $args --no-daemon
+    dependencies:
+      - build_dependencies
+      - build
+    description: "Runs the tests and generates a coverage report."
+    environment:
+      args: ''
+    input_paths:
+      - '.'
+    output_paths:
+      - coverage.json

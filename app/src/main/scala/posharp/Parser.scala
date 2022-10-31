@@ -4,19 +4,22 @@ import fastparse.JavaWhitespace._
 import fastparse._
 
 import Expr.GetProperty
+import scala.compat.Platform.EOL
 
 object Parser {
   //TODO fix issue when spacing at start of file
-  def topLevel[_: P]: P[Expr.TopLevel] = P(StringIn(" ").? ~ (function | interfaceDef | enumDef).rep(1)).map(x => {
+  def topLevel[_: P]: P[Expr.TopLevel] = P(StringIn(" ").? ~ (function | interfaceDef | enumDef | imports).rep(1)).map(x => {
     var func: List[Expr.Func] = List()
     var intf: List[Expr.DefineInterface] = List()
     var enum: List[Expr.DefineEnum] = List()
+    var imports: List[Expr.Import] = List()
     x.foreach {
       case y@Expr.Func(a, b, c, d) => func = func :+ y
       case y@Expr.DefineInterface(a, b, c) => intf = intf :+ y
       case y@Expr.DefineEnum(a, b) => enum = enum :+ y
+      case y@Expr.Import(a, b) => imports = imports :+ y
     }
-    Expr.TopLevel(func, intf, enum)
+    Expr.TopLevel(func, intf, enum, imports)
   })
 
   def function[_: P]: P[Expr.Func] = P("def " ~/ ident ~ "(" ~/ functionArgs ~ ")" ~/ typeDef.? ~ block).map {
@@ -28,6 +31,8 @@ object Parser {
       Expr.Func(name.name, args, ret, body)
     }
   }
+
+  def imports[_: P]: P[Expr.Import] = P("import " ~/ ident ~ "from" ~ fileName ~ ";").map(x=> Expr.Import(x._1.name, x._2.s))
 
   /*
   def interfaceDef[_: P]: P[Expr.DefineInterface] = P("interface " ~ ident ~/ "{" ~ (ident ~ typeDef).rep(sep = ",") ~ "}").map(props=>
@@ -57,14 +62,14 @@ object Parser {
 
   def line[_: P]: P[Expr] = P(expr ~/ ";")
 
-  def expr[_: P]: P[Expr] = P(arrayDef | arrayDefDefault | defAndSetVal | defVal | NoCut(setVar) | callFuncInLine | retFunction | IfOp | whileLoop | forLoop | print | callFunction | throwException)
+  def expr[_: P]: P[Expr] = P(arrayDef | arrayDefDefault | defAndSetVal | defVal | NoCut(setVar) | callFuncInLine | retFunction | IfOp | whileLoop | forLoop | print | free | callFunction | throwException)
 
   def prefixExpr[_: P]: P[Expr] = P( NoCut(callFunction) | defineLambda | NoCut(convert) | NoCut(parens) | NoCut(condition) | arrayDef | arrayDefDefault | instanceInterface | accessVar | NoCut(getArraySize) |
     numberFloat | number | ident | constant | str | char | trueC | falseC)
 
   def defVal[_: P]: P[Expr.DefVal] = P("val " ~/ ident ~ typeDef.?).map {
-    case (ident, Some(varType)) => Expr.DefVal(ident, varType)
-    case (ident, None) => Expr.DefVal(ident, Type.Undefined())
+    case (ident, Some(varType)) => Expr.DefVal(ident.name, varType)
+    case (ident, None) => Expr.DefVal(ident.name, Type.Undefined())
   }
 
   def accessVar[_: P]: P[Expr] = P(ident ~ ((".".! ~ ident ~ "(".! ~ prefixExpr.rep(sep = ",") ~ ")") | (".".! ~ ident) | ("[".! ~/ prefixExpr ~ "]")).rep).map { case (start, acs) =>
@@ -100,7 +105,7 @@ object Parser {
     }
   }
 
-  def defAndSetVal[_: P] = P(defVal ~ "=" ~ prefixExpr).map(x => Expr.ExtendBlock(List(x._1, Expr.SetVal(x._1.variable, x._2))))
+  def defAndSetVal[_: P] = P(defVal ~ "=" ~/ prefixExpr).map(x => Expr.DefValWithValue(x._1.variable, x._1.varType, x._2))
 
   def defineLambda[_: P]: P[Expr.Lambda] = P("lambda" ~/ "(" ~ (ident ~ typeDef).rep(sep=",") ~ ")" ~ typeDef ~ "=>" ~/ (block | prefixExpr) ).map{ case (args, ret, body) => {
     val argsf = args.map(x=>InputVar(x._1.name, x._2)).toList
@@ -138,7 +143,7 @@ object Parser {
     case "char" => Type.Character();
     case "float" => Type.NumFloat();
     case "bool" => Type.Bool();
-    case "string" => Type.Array(Type.Character());
+    case "string" => Type.Str();
     case "void" => Type.Undefined();
     case "T1" => Type.T1();
   }
@@ -150,19 +155,6 @@ object Parser {
     case (value, "toFloat") => Expr.Convert(value, Type.NumFloat())
     case (value, "toChar") => Expr.Convert(value, Type.Character())
   }
-
-  /*
-  def binOp[_: P] = P(prefixExpr ~ StringIn("+", "-", "*", "/", "==", ">", "<").! ~/ prefixExpr).map({
-    case (l, "+", r) => Expr.Plus(l, r)
-    case (l, "-", r) => Expr.Minus(l, r)
-    case (l, "*", r) => Expr.Mult(l, r)
-    case (l, "/", r) => Expr.Div(l, r)
-    case (l, "==", r) => Expr.Equals(l,r)
-    case (l, "<", r) => Expr.LessThan(l,r)
-    case (l, ">", r) => Expr.MoreThan(l,r)
-    case _ => throw new ParseException("not bin p[")
-  })
-   */
 
   def callFunction[_: P]: P[Expr.CallF] = P(ident ~ "(" ~/ prefixExpr.rep(sep = ",") ~/ ")").map {
     case (name, args) => Expr.CallF(name.name, args.toList);
@@ -220,7 +212,8 @@ object Parser {
     Expr.Block(List(input._1, Expr.While(input._2, Expr.Block(input._4.lines :+ input._3))));
   })
 
-  def str[_: P]: P[Expr.Str] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(x => Expr.Str(x + "\u0000"))
+  def str[_: P]: P[Expr.Str] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(x => Expr.Str(x.replace("\\n", ""+10.toChar) + "\u0000"))
+  def fileName[_: P]: P[Expr.Str] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(x => Expr.Str(x))
 
   def ident[_: P]: P[Expr.Ident] = P(CharIn("a-zA-Z_") ~~ CharsWhileIn("a-zA-Z0-9_", 0)).!.map((input) => {
     Expr.Ident(input)
@@ -230,7 +223,11 @@ object Parser {
 
   def numberFloat[_: P]: P[Expr.NumFloat] = P("-".? ~~ CharsWhileIn("0-9", 1) ~~ "." ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.NumFloat(x.toFloat))
 
-  def char[_: P]: P[Expr.Character] = P("'" ~/ AnyChar.! ~/ "'").map(x => Expr.Character(x.charAt(0)));
+  def char[_: P]: P[Expr.Character] = P("'" ~/ !"'" ~ (AnyChar.! | "\\n".!) ~/ "'").map(x => {
+    var c = x.charAt(0);
+    if(x.length == 2 && x=="\n") c = 10;
+    Expr.Character(c)
+  });
 
   def constant[_: P]: P[Expr] = P(trueC | falseC)
 
@@ -239,6 +236,7 @@ object Parser {
   def falseC[_: P]: P[Expr.False] = P("false").map(_ => Expr.False())
 
   def print[_: P]: P[Expr.Print] = P("print" ~ "(" ~/ (NoCut(binOp) | prefixExpr) ~ ")").map(Expr.Print)
+  def free[_: P]: P[Expr.Free] = P("free" ~ "(" ~/ (prefixExpr) ~ ")").map(Expr.Free)
 
   def throwException[_: P]: P[Expr.ThrowException] = P("throw" ~/ "exception" ~/ "(" ~/ str ~/ ")").map(x => Expr.ThrowException(x.s.dropRight(1)))
 

@@ -26,9 +26,9 @@ object Expr{
   case class Not(condition: Expr) extends Expr
   //case class RetIf(condition: Expr, ifTrue: Expr, ifFalse: Expr) extends Expr
 
-  case class Print(value: Expr) extends Expr
   case class SetVal(variable: Expr, value: Expr) extends Expr
-  case class DefVal(variable: Expr, varType: Type) extends Expr
+  case class DefVal(variable: String, varType: Type) extends Expr
+  case class DefValWithValue(variable: String, varType: Type, value: Expr) extends Expr
   case class Block(lines: List[Expr]) extends Expr
   case class ExtendBlock(lines: List[Expr]) extends Expr
   case class While(condition: Expr, execute: Expr.Block) extends Expr
@@ -62,10 +62,15 @@ object Expr{
 
   case class Convert(value: Expr, to: Type) extends Expr
 
-  case class TopLevel(functions: List[Func], interfaces: List[DefineInterface], enums: List[DefineEnum]) extends Expr
+  case class TopLevel(functions: List[Func], interfaces: List[DefineInterface], enums: List[DefineEnum], imports: List[Import]) extends Expr
+  case class Import(toImport: String, file: String) extends Expr
+
+  case class Print(value: Expr) extends Expr
+  case class Free(value: Expr) extends Expr
+
   case class ThrowException(errorMsg: String) extends Expr
   case class Nothing() extends Expr
-  case class Compiled(code: String, raxType: Type) extends Expr
+  case class Compiled(code: String, raxType: Type, loc: String) extends Expr
   case class RawReference() extends Expr
 }
 
@@ -77,8 +82,10 @@ object Type {
   case class Character() extends Type
   case class Array(elemType: Type) extends Type
   case class Bool() extends Type
+  case class Str() extends Type
   //case class Interface(properties: List[InputVar]) extends Type
-  case class Interface(properties: List[InputVar], functions: List[FunctionInfo]) extends Type
+  case class Interface(name: String, properties: List[InputVar], functions: List[FunctionInfo]) extends Type
+  case class StaticInterface(properties: List[InputVar], functions: List[FunctionInfo]) extends Type
   case class Function(args: List[Type], retType: Type) extends Type
   case class T1() extends Type
   case class Enum(el: List[String]) extends Type
@@ -93,7 +100,7 @@ object Type {
     case Bool() => "b"
     case Array(inner) => "arr_"+shortS(inner)+"_"
     //case Interface(inner) => "itf_"+inner.map(x=>shortS(x.varType))+"_"
-    case Interface(inner, innerf) => "itf_"+inner.map(x=>shortS(x.varType)).mkString+"_"+innerf.map(x=>x.name)+"_"
+    case Interface(_, inner, innerf) => "itf_"+inner.map(x=>shortS(x.varType)).mkString+"_"+innerf.map(x=>x.name)+"_"
     case Function(args, retType) => "func_"+args.map(x=>shortS(x)).mkString+"_"+shortS(retType)
     case UserType(name) => name
     case T1() => "T1"
@@ -113,6 +120,25 @@ object Type {
     case NumFloat() => Expr.NumFloat(0);
     case Character() => Expr.Character('\u0000');
     case _ => Expr.Nothing();
+  }
+  def toLLVM(valType: Type): String = valType match {
+    case Num() => "i32";
+    case NumFloat() => "double";
+    case Character() => "i8"
+    case Bool() => "i1"
+    case Array(inner) => s"%Type.array.${toLLVM(inner)}*"
+    case Undefined() => "void"
+    case Str() => "i8*"
+    //should be avoided, as usertype could be not a class
+    case UserType(name) => s"%Class.$name*"
+    case Interface(name, _, _) => s"%Class.$name*"
+    /*
+    case Interface(vars, funcs) => {
+      val argS = vars.map(x=>toLLVM(x.varType)).mkString(", ")
+      s"{ $argS }"
+    }
+     */
+    case _ => throw new Exception(s"$valType unrecognised for LLVM");
   }
 }
 case class InputVar(name: String, varType: Type)
