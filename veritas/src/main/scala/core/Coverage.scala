@@ -4,8 +4,8 @@ import org.reflections.Reflections
 import posharp.Expr
 
 import java.nio.file.{Files, Path}
-import scala.collection.convert.ImplicitConversions._
 import scala.collection.immutable.ListMap
+import scala.jdk.CollectionConverters._
 
 /**
  * Generates a simple coverage report indicating which case classes inheriting from [[Expr]] are being used by
@@ -57,7 +57,7 @@ object Coverage {
    * @return (Class,ClassName) tuples
    */
   private def GetExprClassNameTuples: List[(Class[_ <: Expr], String)] = {
-    reflections.getSubTypesOf(classOf[Expr]).toList
+    reflections.getSubTypesOf(classOf[Expr]).asScala.toList
       .map(el => (el, el.getName.split("\\$").last))
   }
 
@@ -67,7 +67,7 @@ object Coverage {
    * @param export True exports a CodeCov JSON report
    * @return Map[ClassName, TimesUsed]
    */
-  def CalculateCoverage(export: Boolean = false): Map[String, Int] = {
+  def CalculateCoverage(`export`: Boolean = false): Map[String, Int] = {
     val coverages = SumCoverages(exprs)
 
     val res = GetAllExprCaseClasses()
@@ -75,7 +75,7 @@ object Coverage {
       .map(el => el._1 -> 0)
       .filterNot(el => redundantExprs.contains(el._1))
 
-    percentage = ((coverages.size / GetAllExprCaseClasses().size.toDouble) * 100).round
+    percentage = ((coverages.size / GetAllExprCaseClasses().size.toDouble) * 100).round.toDouble
 
     println(s"==== Covered $percentage% of Expr case classes ====\n")
 
@@ -130,11 +130,11 @@ object Coverage {
     // Find where the object starts to avoid mismatching stuff with imports
     // This shouldn't happen because of the regex stuff I later added below but
     // you never know.
-    val objStart = txt.indexWhere(_.contains("object Expr"))
+    val objStart = txt.asScala.indexWhere(_.contains("object Expr"))
 
     cov.foreach(el => output = output :+
       ExprUsagesLine(el._1, el._2,
-        txt
+        txt.asScala
           .drop(objStart)
           .indexWhere(line => ExtractClassName(line) == el._1) + objStart + 1
       ))
@@ -160,7 +160,7 @@ object Coverage {
   private def ExtractClassName(line: String): String = {
     val data = "case class ([a-zA-Z]+)\\(".r.findAllIn(line).matchData.toList
     if (data.isEmpty) ""
-    else data.get(0).group(1)
+    else data.asJava.get(0).group(1)
   }
 
   /**
