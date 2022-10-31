@@ -43,7 +43,7 @@ object ToAssembly {
   var interfaces: List[InterfaceInfo] = List();
   var enums: List[EnumInfo] = List()
   var lambdas: List[(Expr.Func, Env)] = List()
-  var functionScope: FunctionInfo = FunctionInfo("main", List(), Type.Num());
+  var functionScope: FunctionInfo = FunctionInfo("main", "", List(), Type.Num());
 
   def convertMain(input: Expr, currentFile: String, otherFiles: Map[String, Expr.TopLevel]): String = {
     ifCounter = 0;
@@ -53,7 +53,7 @@ object ToAssembly {
     interfaces = List();
     enums = List()
     lambdas = List()
-    functionScope = FunctionInfo("main", List(), Type.Num());
+    functionScope = FunctionInfo("main", "", List(), Type.Num());
 
     var converted =
       """
@@ -80,7 +80,7 @@ object ToAssembly {
         | %Type.array.i8 = type {i32, i8*}
         | %Type.array.i1 = type {i32, i1*}
         |
-        |""".stripMargin; //[0 x i32]
+        |""".stripMargin;
     input match { case x: Expr.TopLevel => {
       declareFunctions(x);
       converted += declareInterfaces(x) + "\n";
@@ -255,16 +255,17 @@ object ToAssembly {
     var extendLines = lines;
     var defstring: String = lines.head match {
       case Expr.SetVal(Expr.Ident(name), value) => {
-        val look = lookupOffset(name, env)
+        val look = lookupLoc(name, env)
         val converted = convertLoc(value, env);
         if(makeUserTypesConcrete(look.varType) != converted._2) throw new Exception(s"mismatch when assigning value" +
           s" to variable $name, expected ${look.varType}, but got ${converted._2}")
-        val set = s"store ${Type.toLLVM(converted._2)} ${converted._3}, ${Type.toLLVM(converted._2)}* %$name, align ${arraySizeFromType(converted._2)}\n"
+        val set = s"store ${Type.toLLVM(converted._2)} ${converted._3}, ${Type.toLLVM(converted._2)}* ${look.loc}, align ${arraySizeFromType(converted._2)}\n"
         converted._1 + set;
       };
       case Expr.DefVal(name, varType) => {
-        newenv = newVar(name, varType, newenv);
-        s"%$name = alloca ${Type.toLLVM(varType)}\n" //, align ${arraySizeFromType(varType)}
+        val loc = s"%$name.${varc.extra()}"
+        newenv = newVar(name, loc, varType, newenv);
+        s"$loc = alloca ${Type.toLLVM(varType)}\n" //, align ${arraySizeFromType(varType)}
       }
       case Expr.DefValWithValue(variable, varType, value) => {
         var newType = varType
@@ -272,9 +273,11 @@ object ToAssembly {
         if(newType == Type.Undefined()) newType = converted._2;
         if(makeUserTypesConcrete(newType) != converted._2) throw new Exception(s"mismatch when assigning value" +
           s" to variable $variable, expected ${newType}, but got ${converted._2}")
-        val set = s"store ${Type.toLLVM(converted._2)} ${converted._3}, ${Type.toLLVM(converted._2)}* %$variable, align ${arraySizeFromType(converted._2)}\n";
-        newenv = newVar(variable, newType, newenv);
-        s"%$variable = alloca ${Type.toLLVM(newType)}, align 64\n" + converted._1 + set; //, align 4 ${arraySizeFromType(newType)}
+
+        val loc = s"%$variable.${varc.extra()}"
+        val set = s"store ${Type.toLLVM(converted._2)} ${converted._3}, ${Type.toLLVM(converted._2)}* $loc, align ${arraySizeFromType(converted._2)}\n";
+        newenv = newVar(variable, loc, newType, newenv);
+        s"$loc = alloca ${Type.toLLVM(newType)}, align 64\n" + converted._1 + set; //, align 4 ${arraySizeFromType(newType)}
       }
       case Expr.If(condition, ifTrue, ifFalse) => {
         def compare(left: Expr, right: Expr, numeric: Boolean): String =
@@ -377,17 +380,17 @@ object ToAssembly {
   }
 
   private def declareFunctions(input: Expr.TopLevel): Unit = {
-    functions = input.functions.map(x=> FunctionInfo(x.name, x.argNames, x.retType))
+    functions = input.functions.map(x=> FunctionInfo(x.name, "", x.argNames, x.retType))
   }
   private def declareInterfaces(input: Expr.TopLevel): String = {
-    interfaces = input.interfaces.map(x=> InterfaceInfo(x.name, x.props, x.functions.map(x=>FunctionInfo(x.name,x.argNames,x.retType))))
+    interfaces = input.interfaces.map(x=> InterfaceInfo(x.name, x.props, x.functions.map(x=>FunctionInfo(x.name,"", x.argNames,x.retType))))
     functions = functions ::: interfaces.flatMap(x=>addPrefixToFunctions(x.name,x.funcs))
     interfaces.map(intf => {
       val types = intf.args.map(x=>Type.toLLVM(x.varType)).mkString(", ")
       s"%Class.${intf.name} = type {$types}\n"
     }).mkString
   }
-  private def addPrefixToFunctions(prefix: String, funcs: List[FunctionInfo]): List[FunctionInfo] = funcs.map(y=>FunctionInfo(prefix+"_"+y.name, y.args, y.retType))
+  private def addPrefixToFunctions(prefix: String, funcs: List[FunctionInfo]): List[FunctionInfo] = funcs.map(y=>FunctionInfo(prefix+"_"+y.name, y.prefix, y.args, y.retType))
   private def declareEnums(input: Expr.TopLevel): Unit = {
     enums = input.enums.map(x=>EnumInfo(x.name,x.props))
   }
@@ -399,11 +402,11 @@ object ToAssembly {
 
       val funcsForImport = searchFileDeclarations(top, imp) match {
         case Expr.Func(name, argnames, retType, code) => {
-          functions = functions :+ FunctionInfo(name, argnames, retType)
-          List(FunctionInfo(name, argnames, retType))
+          functions = functions :+ FunctionInfo(name, formatFName(imp.file), argnames, retType)
+          List(FunctionInfo(name, formatFName(imp.file), argnames, retType))
         }
         case Expr.DefineInterface(name, props, i_functions) => {
-          val intf = InterfaceInfo(name, props, i_functions.map(x=>FunctionInfo(x.name,x.argNames,x.retType)))
+          val intf = InterfaceInfo(name, props, i_functions.map(x=>FunctionInfo(x.name,formatFName(imp.file), x.argNames,x.retType)))
           interfaces = interfaces :+ intf
 
           val types = intf.args.map(x=>Type.toLLVM(x.varType)).mkString(", ")
@@ -411,15 +414,16 @@ object ToAssembly {
 
           val funcs = addPrefixToFunctions(intf.name,intf.funcs)
           functions = functions ::: funcs
-          funcs.map(x=>FunctionInfo(x.name, x.args, x.retType))
+          funcs.map(x=>FunctionInfo(x.name, formatFName(imp.file), x.args, x.retType))
         }
       }
       ret + funcsForImport.map(info=>{
         val name = fNameSignature(info)
         val importName = formatFName(imp.file) + "_" + name
         val args = info.args.map(x=>s"${Type.toLLVM(x.varType)}").mkString(", ")
-        s"declare ${Type.toLLVM(info.retType)} @${importName}($args)\n" +
-          s"@$name = ifunc ${toLLVM(info)}, ${toLLVM(info)}* @${importName}\n"
+        //s"declare ${Type.toLLVM(info.retType)} @${importName}($args)\n" +
+        //  s"@$name = ifunc ${toLLVM(info)}, ${toLLVM(info)}* @${importName}\n"
+        s"declare ${Type.toLLVM(info.retType)} @${importName}($args) \"${formatFName(imp.file)}\"\n"
       }).mkString
       /*
       intf.funcs.map(x=>{
@@ -481,11 +485,13 @@ object ToAssembly {
       functionScope = info;
       val fname = fNameSignature(info)
       val args = info.args.map(x=>s"${Type.toLLVM(x.varType)} %Input.${x.name}").mkString(", ")
-      var ret = s"define ${Type.toLLVM(info.retType)} @${fname}($args) #0 {\n"
-      val newEnv = upperScope ++ info.args.map(x=> (x.name, Variable(x.varType))).toMap
+      val addPrivate = if (info.name=="main") "" else "private ";
+      var ret = s"define $addPrivate${Type.toLLVM(info.retType)} @${fname}($args) #0 {\n"
+      val newEnv = upperScope ++ info.args.map(x=> (x.name, Variable(s"%${x.name}", x.varType))).toMap //Variable(s"%${x.name}.${varc.extra()}"
       var body = info.args.map(x=>
         s"%${x.name} = alloca ${Type.toLLVM(x.varType)}, align 64\n" + //, align ${arraySizeFromType(x.varType)}
         s"store ${Type.toLLVM(x.varType)} %Input.${x.name}, ${Type.toLLVM(x.varType)}* %${x.name}\n").mkString //, align ${arraySizeFromType(x.varType)}
+      //TODO might want to handle name shadowing here
 
       body += "%dummy = alloca i32\n"
       body += convert(function.body, newEnv)._1
@@ -509,8 +515,9 @@ object ToAssembly {
       case Some(x) => ; case None => throw new Exception(s"function of name $name undefined");
     }
     functions.find(x=>x.name == name && Type.compare(argInputTypes, x.args.map(x=>makeUserTypesConcrete(x.varType)))) match {
-      case Some(info@FunctionInfo(p, argTypes, retType)) => {
-        val tName = fNameSignature(info)
+      case Some(info@FunctionInfo(p, prefix, argTypes, retType)) => {
+        var tName = fNameSignature(info)
+        if(prefix != "") tName = prefix+"_"+tName;
         val argTypeString = argTypes.map(x=>Type.toLLVM(x.varType)).mkString(", ")
         if (retType != Type.Undefined()) ret += s"${varc.next()} = ";
         ret += s"call ${Type.toLLVM(retType)} ($argTypeString) @$tName($argsString)\n"
@@ -685,16 +692,16 @@ object ToAssembly {
   }
 
   def lookup(tofind: String, env: Env): (String, Variable) = {
-    val ret = lookupOffset(tofind, env)
-    (s"${varc.next()} = load ${Type.toLLVM(ret.varType)}, ${Type.toLLVM(ret.varType)}* %$tofind, align ${arraySizeFromType(ret.varType)}\n", ret)
+    val ret = lookupLoc(tofind, env)
+    (s"${varc.next()} = load ${Type.toLLVM(ret.varType)}, ${Type.toLLVM(ret.varType)}* ${ret.loc}, align ${arraySizeFromType(ret.varType)}\n", ret)
   }
-  def lookupOffset(tofind: String, env: Env): Variable = env.get(tofind) match {
+  def lookupLoc(tofind: String, env: Env): Variable = env.get(tofind) match {
     case Some(v) => v
     case None => throw new Exception(s"variable \"${tofind}\" undefined")
   }
-  def newVar(name: String, varType: Type, env: Env) : Env = {
+  def newVar(name: String, loc: String, varType: Type, env: Env) : Env = {
     if(env.contains(name)) throw new Exception(s"variable \"${name}\" already defined")
-    env + (name -> Variable(varType))
+    env + (name -> Variable(loc, varType))
   }
 
   def convertLoc(input: Expr, env: Env): (String, Type, String) = {
@@ -744,20 +751,8 @@ object ToAssembly {
       case ((codeLeft, typeLeft, x), (codeRight, typeRight, y)) => throw new Exception(s"can't perform arithmetic on operands of types ${typeLeft} and ${typeRight}");
     }
   }
-  /*
-  def convertToFloat(reg: String): String = {
-    s"cvtsi2sd xmm0, ${reg}\n" + s"movq ${reg}, xmm0\n"
-  }
-  def convertToInt(reg: String): String = {
-    s"movq xmm0, ${reg}\n" + s"cvtsd2si ${reg}, xmm0\n"
-  }
-  */
 
   def printTemplate(format: String, ty: String, loc: String): String = {
-    /*
-    s"%ret.${varc.extra()} = call i32 (ptr, ...) @printf(ptr getelementptr inbounds" +
-      s" ([3 x i8], [3 x i8]* @$format, i32 0, i32 0), $ty ${varc.last()})\n"
-     */
     s"%ret.${varc.extra()} = call i32 (ptr, ...) @printf(ptr @$format, $ty ${loc})\n" +
       s"${varc.next()} = load ptr, ptr @stdout, align 8" +
     s"call void @setbuf(ptr noundef ${varc.last()}, ptr noundef null)"
@@ -781,21 +776,12 @@ object ToAssembly {
       case _ => throw new Exception(s"input of type ${converted._2} not recognized in print")
     }
   }
-  //TODO runtime memory garbage collection, currently only pointers on the stack are handled
-  /*
-  def freeMemory(env: Env): String = env.foldLeft("")((acc, entry) => entry._2.varType match {
-    case Type.Array(arrType) => acc + s"mov rdi, [rbp-${entry._2.pointer}]\n" + "call free\n";
-    //case Type.Interface(args) => acc + s"mov rdi, [rbp-${entry._2.pointer}]\n" + "call free\n";
-    case _ => acc
-  })
-
-   */
 
   type Env = Map[String, Variable]
-  case class FunctionInfo(name: String, args: List[InputVar], retType: Type)
+  case class FunctionInfo(name: String, prefix: String, args: List[InputVar], retType: Type)
   //case class InterfaceInfo(name: String, args: List[InputVar])
   case class InterfaceInfo(name: String, args: List[InputVar], funcs: List[FunctionInfo])
   case class EnumInfo(name: String, el: List[String])
-  case class Variable(varType: Type)
+  case class Variable(loc: String, varType: Type)
 }
 

@@ -171,3 +171,5 @@ gradle-app.setting
 !po_src/lib/
 po_src
 coverage.json
+pwndbg/
+debugir

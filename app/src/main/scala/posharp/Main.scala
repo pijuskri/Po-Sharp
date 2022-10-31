@@ -13,7 +13,7 @@ object Main extends App {
   if (args.length > 0) {
     sourceDir = args(0)
   }
-  val files = recursiveListFiles(new File(sourceDir)).toList.filter(x=>x.getName.contains(Constants.FileExtension))
+  val files = recursiveListFiles(new File(sourceDir), "ignore").toList.filter(x=>x.getName.contains(Constants.FileExtension))
   val sourceDirPath = Paths.get(sourceDir)
   val declarations: Map[String, Expr.TopLevel] = files.map(file => {
     val toCompile = readFile(file)
@@ -64,10 +64,10 @@ object Main extends App {
     source.close()
     codetxt
   }
-  def recursiveListFiles(f: File): Array[File] = {
+  def recursiveListFiles(f: File, ignore: String): Array[File] = {
     if(f.isFile) return Array(f)
     val these = f.listFiles
-    these ++ these.filter(x=>x.isDirectory).flatMap(x=>recursiveListFiles(x))
+    these ++ these.filter(x=>x.isDirectory && x.getName!=ignore).flatMap(x=>recursiveListFiles(x, ignore))
   }
 
 }

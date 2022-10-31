@@ -3,10 +3,12 @@
 * lambdas
 
 ## Bugs
-* for some reason imports are still done in files
-* functions have limited checking before llvm catches it (especially multiple constructors)
+* ~~functions have limited checking before llvm catches it (especially multiple constructors)~~
+* remove l prefix from register names
 
 ## To do
+
+
 
 * add copy command to arrays(and maybe structs)
 * rework file imports with explicit export command

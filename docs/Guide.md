@@ -48,6 +48,7 @@ def main(): int {
 * bool
 * float
 * array[*type*]
+* void (return nothing for functions)
 
 ### Floats
 

@@ -157,14 +157,16 @@ def fib(n: int): int {
 * Enums
 * Objects
 * runtime exceptions
-* lambda functions
+* multiple files
 
 ### To do
 <div id="todo"></div>
 
 #### Major
 
-* multiple files
+* Tuples
+* Extension methods
+* lambda functions
 * Generics
 * Object inheritance
 * library functions
