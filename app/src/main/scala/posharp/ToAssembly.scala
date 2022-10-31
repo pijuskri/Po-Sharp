@@ -202,7 +202,6 @@ object ToAssembly {
         case Some(intf) => {
           var aloc = "";
           val classT = s"%Class.$name"
-          //ret += s"${varc.next()} = alloca %Class.$name, align 64\n"
 
           aloc += s"${varc.next()} = getelementptr $classT, $classT* null, i32 1\n" + s"${varc.next()} = ptrtoint $classT** ${varc.secondLast()} to i32\n"
           val bytesLoc = varc.last();
@@ -211,9 +210,8 @@ object ToAssembly {
 
           val valuesCompiled = values.map(x=>convertLoc(x, env)).map(x=>Expr.Compiled(x._1, x._2, x._3))
           intf.funcs.find(x=>x.name == name && x.args == values)
-          val func_code = interpFunction(name+"_"+name, Expr.Compiled(aloc, UserType(name), varc.last()) +: valuesCompiled, env)._1
-          val ret = func_code;
-          (ret, Type.Interface(name, intf.args, intf.funcs))
+          val func_code = interpFunction(name+"_"+name, Expr.Compiled(aloc, UserType(name), alocLoc) +: valuesCompiled, env)._1
+          (func_code, Type.Interface(name, intf.args, intf.funcs))
         }
         case None => throw new Exception(s"no interface with name \"$name\" defined")
       }

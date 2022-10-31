@@ -114,7 +114,7 @@ object Type {
     case _ => false
   }
   def compare(value: (Type, Type)): Boolean = compare(value._1,value._2)
-  def compare(val1: List[Type], val2: List[Type]): Boolean = (val1 zip val2).forall(x=>compare(x))
+  def compare(val1: List[Type], val2: List[Type]): Boolean = val1.length == val2.length && (val1 zip val2).forall(x=>compare(x))
   def defaultValue(valType: Type): Expr = valType match {
     case Num() => Expr.Num(0);
     case NumFloat() => Expr.NumFloat(0);
