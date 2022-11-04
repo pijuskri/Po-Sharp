@@ -14,5 +14,5 @@ dependencies {
 }
 
 application {
-    mainClass.set("scala.Main")
+    mainClass.set("scala.Main") //posharp.Main
 }

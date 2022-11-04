@@ -31,7 +31,7 @@
 <h2 align="center">Po#</h2>
 <div>
   <p align="center">
-    Custom language compiler to X86_64 nasm assembly, written in Scala
+    Custom language frontend for LLVM IR, written in Scala
     <br />
     <br />
   </p>
@@ -83,23 +83,23 @@ to translate to assembly.
 
 * [Scala](https://www.scala-lang.org/)
 * [FastParse](https://github.com/com-lihaoyi/fastparse)
+* [LLVM](https://llvm.org/)
 
 <!-- GETTING STARTED -->
 ### Prerequisites
 <div id="prerequisites"></div>
 
-* [Ubuntu 18.04]() and/or [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)
+* [Ubuntu 18.04 or newer]() and/or [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)
 * [JDK 13+](https://www.oracle.com/java/technologies/downloads/)
-* [Scala 2.13](https://www.scala-lang.org/download/)
-* [SBT 1.6.1](https://www.scala-sbt.org/download.html)
-* [NASM](https://www.nasm.us/)
+* [Scala 2.13+](https://www.scala-lang.org/download/)
+* [Gradle 7.5](https://gradle.org/install/)
 * [GCC](https://gcc.gnu.org/)
+* [Clang 15+](https://releases.llvm.org/)
+* [LLVM 15+](https://releases.llvm.org/download.html)
 
 ### Getting Started
 <div id="getting-started"></div>
 
-Currently, I run the scala compiler through IntelliJ. The conversion from
-assembly to binary is handled by a makefile, that i run in WSL with ubuntu 18;
 
 There is also an option to compile with a single command using sbt. Just run `make full`
 in the main directory
