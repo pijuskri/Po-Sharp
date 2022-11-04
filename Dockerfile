@@ -1,20 +1,17 @@
 # antoniosbarotsis/posharp-veritas
-# Packages all dependencies needed to run the tests
+# Packages all project dependencies
 
 FROM openjdk:17-jdk-slim
 
-RUN apt-get update && apt-get install -y \
-  make \
-  llvm \
-  gcc \
-  curl \
-  nano \
-  && apt-get clean \
-  && rm -rf /var/cache/apt/archives /var/lib/apt/lists/*
+RUN apt-get update -y && \
+  apt-get install -y gcc make curl dos2unix lsb-release wget software-properties-common gnupg
 
-# Cache dependencies hopefully
+COPY llvm.sh llvm.sh
+RUN chmod +x llvm.sh
+RUN dos2unix llvm.sh
+RUN cat ./llvm.sh
+RUN ./llvm.sh 15
+RUN mv /usr/bin/llc-15 /usr/bin/llc
+
 COPY *.gradle gradle.* gradlew ./
 COPY gradle/ ./gradle/
-
-# Make the build fail so the dependencies get resolved
-RUN ./gradlew clean build --no-daemon 2>&1 || true
