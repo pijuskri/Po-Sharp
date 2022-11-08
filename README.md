@@ -25,7 +25,7 @@
 [![Issues][issues-shield]][issues-url]
 [![MIT License][license-shield]][license-url]
 [![LinkedIn][linkedin-shield]][linkedin-url]
-[![Build and Test](https://github.com/pijuskri/Po-Sharp/actions/workflows/workflow.yml/badge.svg?branch=master)](https://github.com/pijuskri/Po-Sharp/actions/workflows/workflow.yml)
+[![GitHub Workflow Status](https://img.shields.io/github/workflow/status/pijuskri/Po-Sharp/Build%20and%20Test?label=Build%20and%20Test&style=for-the-badge)](https://github.com/pijuskri/Po-Sharp/actions/workflows/workflow.yml)
 
 
 <h2 align="center">Po#</h2>
