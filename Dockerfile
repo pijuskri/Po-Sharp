@@ -9,8 +9,8 @@ RUN apt-get update -y && \
 COPY llvm.sh llvm.sh
 RUN chmod +x llvm.sh
 RUN dos2unix llvm.sh
-RUN cat ./llvm.sh
 RUN ./llvm.sh 15
+
 RUN mv /usr/bin/llc-15 /usr/bin/llc
 
 COPY *.gradle gradle.* gradlew ./
