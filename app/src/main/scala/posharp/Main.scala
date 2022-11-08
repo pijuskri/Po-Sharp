@@ -65,6 +65,10 @@ object Main extends App {
     codetxt
   }
   def recursiveListFiles(f: File, ignore: String): Array[File] = {
+    if (!f.exists()) {
+      return Array()
+    }
+
     if(f.isFile) return Array(f)
     val these = f.listFiles
     these ++ these.filter(x=>x.isDirectory && x.getName!=ignore).flatMap(x=>recursiveListFiles(x, ignore))
