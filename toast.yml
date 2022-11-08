@@ -15,7 +15,6 @@ tasks:
     environment:
       CI: ''
     excluded_input_paths:
-      # - 'bin'
       - 'build'
     input_paths:
       - '.'
