@@ -1,20 +1,20 @@
 #!/bin/bash
 
 #for compatibility between installs
-clang() {
-    if hash clang-15 2>/dev/null; then
-        clang-15 "$@"
-    else
-        clang "$@"
-    fi
-}
-llc() {
-    if hash llc-15 2>/dev/null; then
-        llc-15 "$@"
-    else
-        llc "$@"
-    fi
-}
+#clang() {
+#    if hash clang-15 2>/dev/null; then
+#        clang-15 "$@"
+#    else
+#        clang "$@"
+#    fi
+#}
+#llc() {
+#    if hash llc-15 2>/dev/null; then
+#        llc-15 "$@"
+#    else
+#        llc "$@"
+#    fi
+#}
 
 #make compiled directory and go to it
 mkdir -p compiled && \
@@ -38,13 +38,20 @@ files_asm=()
 for i in $files;
 do
     files_asm+=("$i".s)
-    llc "$i".ll -O0 -opaque-pointers --stackrealign --stack-size-section  --debugify-level=location+variables --frame-pointer=all -align-all-nofallthru-blocks=4 -align-all-functions=4
+    echo "$i".ll
+    llc "$i".ll -O0 -opaque-pointers
+    # --stackrealign --stack-size-section  --debugify-level=location+variables --frame-pointer=all -align-all-nofallthru-blocks=4 -align-all-functions=4
     #  --stackrealign --asm-show-inst --align-loops=64
 done
 
+#llc test.ll -O0 -opaque-pointers
 #put all asm files to files
 files="${files_asm[*]}"
 
 #gcc -O0 -ggdb -mpreferred-stack-boundary=4 -no-pie $files -o "hello"
 #link and compile all assembly files to a single object file
 clang -O0 -no-pie $files -o "hello" # -mstack-alignment=4
+
+#cd compiled/
+#llc test.ll -O0 -opaque-pointers
+#clang -O0 -no-pie test.s -o "hello" # -mstack-alignment=4
