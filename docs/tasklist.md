@@ -17,6 +17,7 @@
 * line numbers in compiler
 * static variables
 * add prinf
+* Allow selecting main function/file
 
 * infer self in object functions
 * add method to get all interface arguments/names

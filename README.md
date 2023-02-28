@@ -101,12 +101,11 @@ to translate to assembly.
 ### Getting Started
 <div id="getting-started"></div>
 
-
-There is also an option to compile with a single command using sbt. Just run `make full`
-in the main directory
-
-For now the code that is interpreted can be typed in the Main object. The .ll files
-will be generated in `compiled/`.
+1. All prerequisites should be installed and verified.
+2. Create a .txt file in ``/po_src/`` which will act as the main source file
+3. Create a main function
+4. To compile to llvm, run ```gradle app:run```
+5. To run, 
 
 With gradle
 * In root directory call `make full`
@@ -161,20 +160,21 @@ def fib(n: int): int {
 
 #### Major
 
+* Fully functional import/export system
 * Tuples
 * Extension methods
 * lambda functions
 * Generics
 * Object inheritance
 * library functions
-* typeof
-* Garbage collector
+* Garbage collector/manual memory
 * packages
 * File i/o
 * Optimisation
 
 #### Minor
 
+* typeof
 * Structs
 * ref/out
 * Type alias

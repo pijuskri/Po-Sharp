@@ -5,9 +5,9 @@ It is very WIP, but I do want to provide basic info here so anyone
 would be able to write Po# code.
 
 ### Basics
-
+*  Source files use a .txt extension
+* currently, a main function must be defined, together with its return type ```int```
 ```scala
-//currently, a main function must be defined, together with its return type
 def main(): int { 
     print(5); // each statement must be ended with ";", does not need to be on new line
     {
@@ -190,6 +190,42 @@ object Coord {
     return ((self.x == other.x) && (self.y == other.y));
   }
 }
+def main(): int {
+  //instantiate an object using the new keyword and calling the constructor
+  val a = new Coord(0,1);
+  val b = new Coord(1,5);
+  print(a.compare(b)); //call object function with . op
+}
+```
+
+### Multiple files
+
+* Current system for multiple files supports javascript style import syntax for functions and classes.
+* There is no export keyword, as every declaration is public.
+* Currently, the function/class name is directly added to the namespace, so there will be conflicts with same named classes/functions.
+* Only a single main function can be declared across files
+#### /lib/lib.txt
+```scala
+object Coord {
+  x: int;
+  y: int; 
+  
+  def Coord(self: Coord, x: int, y: int) {
+    self.x = x; //reference elements of an object used . operator
+    self.y = y;
+  }
+  
+  def compare(self: Coord, other: Coord): bool {
+    return ((self.x == other.x) && (self.y == other.y));
+  }
+}
+
+```
+
+#### /main.txt
+```scala
+import Coord from "lib/lib.txt";
+
 def main(): int {
   //instantiate an object using the new keyword and calling the constructor
   val a = new Coord(0,1);
