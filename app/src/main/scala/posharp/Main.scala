@@ -37,10 +37,11 @@ object Main extends App {
       }
       catch {
         case x: Exception => {
-          println(AnsiColor.RED + s"Compilation exception in \"$file\": ${x.getMessage}" + AnsiColor.RESET);
+          println(AnsiColor.RED + s"Compilation exception in \"$file\": ${x.getMessage} ${x.getStackTrace.mkString("\n")}" + AnsiColor.RESET);
           sys.exit(1);
         }
       }
+
       println("")
       writeCompiled(asm, "compiled/", file)
     })

@@ -43,6 +43,8 @@ object ToAssembly {
   var interfaces: List[InterfaceInfo] = List();
   var enums: List[EnumInfo] = List()
   var lambdas: List[(Expr.Func, Env)] = List()
+  var templateFunctions: List[Expr.Func] = List()
+  var templateFunctionInstances: List[Expr.Func] = List()
   var functionScope: FunctionInfo = FunctionInfo("main", "", List(), Type.Num());
 
   def convertMain(input: Expr, currentFile: String, otherFiles: Map[String, Expr.TopLevel]): String = {
@@ -53,6 +55,8 @@ object ToAssembly {
     interfaces = List();
     enums = List()
     lambdas = List()
+    templateFunctions = List()
+    templateFunctionInstances = List()
     functionScope = FunctionInfo("main", "", List(), Type.Num());
 
     var converted =
@@ -85,6 +89,7 @@ object ToAssembly {
       declareFunctions(x);
       converted += declareInterfaces(x) + "\n";
       //declareEnums(x)
+      templateFunctions = x.functions.filter(x=>isTemplateFunction(x))
       converted += exportDeclarations(currentFile) + "\n"
       converted += handleImports(x, otherFiles) + "\n"
       converted += defineFunctions(x.functions.map(y=>(y, Map())), false);
@@ -94,6 +99,7 @@ object ToAssembly {
         false
       );
     }}
+    converted += defineFunctions(templateFunctionInstances.map(x=>(x, Map())), false)
     //converted += defineFunctions(lambdas, true);
     converted += stringLiterals.mkString
     converted += """attributes #0 = { mustprogress noinline nounwind optnone uwtable "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }
@@ -444,6 +450,7 @@ object ToAssembly {
       functions
       //interfaces.flatMap(intf=> addPrefixToFunctions(intf.name, intf.funcs))
       )
+      .filter(x=> ! isTemplateFunction(x))
       .map(info => {
         val formatFile = formatFName(file)
         val name = fNameSignature(info)
@@ -478,29 +485,34 @@ object ToAssembly {
 
   private def defineFunctions(input: List[(Expr.Func, Env)], lambdaMode: Boolean): String = {
     input.map{ case (function, upperScope) => {
+      if(isTemplateFunction(function)) {
+        ""
+      }
+      else {
+        val info = functions.find(x => x.name == function.name && x.args == function.argNames).get;
+        functionScope = info;
 
-      val info = functions.find(x=>x.name == function.name && x.args==function.argNames).get;
-      functionScope = info;
-      val fname = fNameSignature(info)
-      val args = info.args.map(x=>s"${Type.toLLVM(x.varType)} %Input.${x.name}").mkString(", ")
-      val addPrivate = if (info.name=="main") "" else "private ";
-      var ret = s"define $addPrivate${Type.toLLVM(info.retType)} @${fname}($args) #0 {\n"
-      val newEnv = upperScope ++ info.args.map(x=> (x.name, Variable(s"%${x.name}", x.varType))).toMap //Variable(s"%${x.name}.${varc.extra()}"
-      var body = info.args.map(x=>
-        s"%${x.name} = alloca ${Type.toLLVM(x.varType)}, align 64\n" + //, align ${arraySizeFromType(x.varType)}
-        s"store ${Type.toLLVM(x.varType)} %Input.${x.name}, ${Type.toLLVM(x.varType)}* %${x.name}\n").mkString //, align ${arraySizeFromType(x.varType)}
-      //TODO might want to handle name shadowing here
+        val fname = fNameSignature(info)
+        val args = info.args.map(x => s"${Type.toLLVM(x.varType)} %Input.${x.name}").mkString(", ")
+        val addPrivate = if (info.name == "main") "" else "private ";
+        var ret = s"define $addPrivate${Type.toLLVM(info.retType)} @${fname}($args) #0 {\n"
+        val newEnv = upperScope ++ info.args.map(x => (x.name, Variable(s"%${x.name}", x.varType))).toMap //Variable(s"%${x.name}.${varc.extra()}"
+        var body = info.args.map(x =>
+          s"%${x.name} = alloca ${Type.toLLVM(x.varType)}, align 64\n" + //, align ${arraySizeFromType(x.varType)}
+            s"store ${Type.toLLVM(x.varType)} %Input.${x.name}, ${Type.toLLVM(x.varType)}* %${x.name}\n").mkString //, align ${arraySizeFromType(x.varType)}
+        //TODO might want to handle name shadowing here
 
-      body += "%dummy = alloca i32\n"
-      body += convert(function.body, newEnv)._1
+        body += "%dummy = alloca i32\n"
+        body += convert(function.body, newEnv)._1
 
-      if(info.retType == Type.Undefined()) body += "ret void\n"
-      if(info.name == "main") body += "ret i32 0\n"
-      varc.reset()
+        if (info.retType == Type.Undefined()) body += "ret void\n"
+        if (info.name == "main") body += "ret i32 0\n"
+        varc.reset()
 
-      ret += body.split("\n").map(x=>"\t"+x).mkString("\n")
-      ret += "\n}\n"
-      ret
+        ret += body.split("\n").map(x => "\t" + x).mkString("\n")
+        ret += "\n}\n"
+        ret
+      }
     }}.mkString
   }
   def interpFunction(name: String, args: List[Expr], env: Env ): (String, Type) = {
@@ -512,7 +524,39 @@ object ToAssembly {
     functions.find(x=>x.name == name) match {
       case Some(x) => ; case None => throw new Exception(s"function of name $name undefined");
     }
-    functions.find(x=>x.name == name && Type.compare(argInputTypes, x.args.map(x=>makeUserTypesConcrete(x.varType)))) match {
+    functions.find(x=>x.name == name && argInputTypes.length==x.args.length) match {
+      case Some(info@FunctionInfo(p, prefix, argTypes, retType)) if isTemplateFunction(info)=> {
+        val replace = templateFunctionArgs(info)
+
+        /*
+        val template_mappings = argInputTypes.zipWithIndex.filter(x => x._1 match {
+          case Type.T(i) => true
+          case _ => false
+        }).map(x=> (replace.find(y=>y._1 == x._2).get._2, x._1) )
+         */
+        val template_mappings = replace.map(x => (x._2, argInputTypes.zipWithIndex.find(y=>y._2 == x._1).get._1))
+
+        //TODO full error message
+        template_mappings.groupBy(x=>x._1).filter(x=>x._2.length>1).foreach(x=>throw new Exception(s"Template function input types conflicting"))
+        //println(template_mappings)
+        val replace_func = (toReplace: Type) => {toReplace match {
+          case t@Type.T(i) => {
+            template_mappings.find(x=>t == x._1) match {
+              case Some((_, typeToReplaceWith)) => typeToReplaceWith
+              case None => throw new Exception(s"T$i template type could not be replaced")
+            }
+          }
+          case x => x
+        }}
+        val func_expr = templateFunctions.find(x=>x.name==name && argTypes == x.argNames).get
+        templateFunctionInstances = templateFunctionInstances :+ replaceType(func_expr, replace_func).asInstanceOf[Expr.Func]
+        functions = functions :+ FunctionInfo(p, prefix, argTypes.map(x=>InputVar(x.name, traverseTypeTree(x.varType, replace_func))), traverseTypeTree(retType, replace_func))
+      }
+      case _ => ()
+    }
+
+    //functions.find(x=>x.name == name && Type.compare(argInputTypes, x.args.map(x=>makeUserTypesConcrete(x.varType)))) match {
+    functions.find(x=>x.name == name && argInputTypes == x.args.map(x=>makeUserTypesConcrete(x.varType))) match {
       case Some(info@FunctionInfo(p, prefix, argTypes, retType)) => {
         var tName = fNameSignature(info)
         if(prefix != "") tName = prefix+"_"+tName;
@@ -528,6 +572,53 @@ object ToAssembly {
       };
     }
   }
+
+  /*
+
+  val out = (functions.find(x=>x.name == name && argInputTypes.length==x.args.length) match {
+      case Some(info@FunctionInfo(p, prefix, argTypes, retType)) if isTemplateFunction(info)=> {
+        val replace = templateFunctionArgs(info)
+
+        val template_mappings = argInputTypes.zipWithIndex.filter(x => x._1 match {
+          case Type.T(i) => true
+          case _ => false
+        }).map(x=> (replace.find(y=>y._1 == x._2).get._2, x._1) )
+
+        //TODO full error message
+        template_mappings.groupBy(x=>x._1).filter(x=>x._2.length>1).foreach(x=>throw new Exception(s"Template function input types conflicting"))
+
+        val replace_func = (toReplace: Type) => toReplace match {
+          case t@Type.T(i) => {
+            template_mappings.find(x=>t == x._1) match {
+              case Some((_, typeToReplaceWith)) => typeToReplaceWith
+              case None => throw new Exception(s"T$i template type could not be replaced")
+            }
+          }
+          case x => x
+        }
+        val func_expr = templateFunctions.find(x=>x.name==name && argTypes == x.argNames).get
+        templateFunctionInstances = templateFunctionInstances :+ replaceType(func_expr, replace_func).asInstanceOf[Expr.Func]
+
+      }
+      case None => None
+    }).getOrElse(
+    functions.find(x=>x.name == name && Type.compare(argInputTypes, x.args.map(x=>makeUserTypesConcrete(x.varType)))) match {
+      case Some(info@FunctionInfo(p, prefix, argTypes, retType)) => {
+        var tName = fNameSignature(info)
+        if(prefix != "") tName = prefix+"_"+tName;
+        val argTypeString = argTypes.map(x=>Type.toLLVM(x.varType)).mkString(", ")
+        if (retType != Type.Undefined()) ret += s"${varc.next()} = ";
+        ret += s"call ${Type.toLLVM(retType)} ($argTypeString) @$tName($argsString)\n"
+        (ret, retType)
+      }
+      case None => {
+        //println(Util.prettyPrint(functions.find(x=>x.name == name).map(x=>x.args.map(y=>InputVar(y.name,makeUserTypesConcrete(y.varType)))).get));
+        println(Util.prettyPrint(argInputTypes.last));
+        throw new Exception(s"no overload of function $name matches argument list $argInputTypes")
+      };
+    })
+    out
+   */
 
   def callObjFunction(obj: Expr, func: Expr.CallF, props: List[InputVar], funcs: List[FunctionInfo], isStatic: Boolean, env: Env): (String, Type) = {
     funcs.find(x=>x.name == func.name) match {
@@ -685,7 +776,7 @@ object ToAssembly {
     case Type.Num() => 4
     case Type.NumFloat() => 8
     case Type.Function(_,_) => 8
-    case Type.T1() => 8
+    case Type.T(_) => 8
     case _ => 8
   }
 
@@ -720,6 +811,65 @@ object ToAssembly {
     varc.counter = c;
     ret
   }
+
+
+  def isTemplateFunction(input: Expr.Func): Boolean = {
+    templateFunctionArgs(input).nonEmpty
+  }
+  def isTemplateFunction(input: FunctionInfo): Boolean = {
+    templateFunctionArgs(input).nonEmpty
+  }
+  def templateFunctionArgs(input: Expr.Func): List[(Int, Type.T)] = {
+    return input.argNames.zipWithIndex.filter(x=>x._1.varType match {
+      case Type.T(a) => true
+      case _ => false
+    }).map(x=>x._1.varType match {
+      case Type.T(a) => (x._2, Type.T(a))
+    })
+  }
+  def templateFunctionArgs(input: FunctionInfo): List[(Int, Type.T)] = {
+    return input.args.zipWithIndex.filter(x=>x._1.varType match {
+      case Type.T(a) => true
+      case _ => false
+    }).map(x=>x._1.varType match {
+      case Type.T(a) => (x._2, Type.T(a))
+    })
+  }
+
+  def traverseTypeTree(input: Type, func: (Type) => Type): Type = input match {
+    /*
+    case UserType(name) => interfaces.find(x=>x.name == name) match {
+      case Some(n) => traverseTypeTree(Type.Interface(n.args, n.funcs)) match {
+        case t@Type.Interface(newargs,f) =>
+          interfaces = interfaces.map(x=>if(x == n) InterfaceInfo(x.name, newargs, x.funcs) else x)
+          t
+      }
+      case _ => throw new Exception (s"no interface of name $name");
+    }
+     */
+    case Type.Interface(name, args,f) => Type.Interface(name,
+      args.map(x=>InputVar(x.name, traverseTypeTree(x.varType, func))),
+      f.map(x=>FunctionInfo(x.name, x.prefix, x.args.map(y=>
+        InputVar(y.name, traverseTypeTree(y.varType, func))
+      ), x.retType))
+    )
+    case Type.Array(valType) => Type.Array(traverseTypeTree(valType, func))
+    case Type.Function(args: List[Type], retType: Type) => Type.Function(args.map(x=>traverseTypeTree(x, func)), traverseTypeTree(retType, func))
+    //StaticInterface(properties: List[InputVar], functions: List[FunctionInfo])
+    case x => func(x)
+  }
+  def replaceType(input: Expr, func: (Type) => Type): Expr = input match {
+    case Expr.DefVal(a, varType) => Expr.DefVal(a, func(varType))
+    case Expr.DefValWithValue(variable, varType, value) => Expr.DefValWithValue(variable, func(varType), value)
+    case Expr.Func(name, argNames, retType, body) => Expr.Func(name, argNames.map(x=>InputVar(x.name, traverseTypeTree(x.varType, func))), func(retType), replaceType(body, func).asInstanceOf[Expr.Block])
+    case Expr.Block(lines) => Expr.Block(lines.map(x=>replaceType(x, func)))
+    case x => x
+        //case  Expr.While(condition: Expr, execute: Expr.Block) =>
+        //case Expr.If(condition: Expr, ifTrue: Expr.Block, ifFalse: Expr) =>
+      //case class Convert(value: Expr, to: Type) extends Expr
+      //case class Lambda(argNames: List[InputVar], retType: Type, body: Expr.Block) extends Expr
+  }
+
   def intBinOpTemplate(codeLeft: String, vLeft: String, codeRight: String, vRight: String, command: String): (String, Type) = {
     (codeLeft + codeRight + s"${varc.next()} = $command i32 $vLeft, $vRight\n", Type.Num());
   }

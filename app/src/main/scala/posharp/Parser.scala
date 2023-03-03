@@ -138,14 +138,15 @@ object Parser {
 
   def typeUser[_: P]: P[Type] = P(ident).map(x => Type.UserType(x.name))
 
-  def typeBase[_: P]: P[Type] = P(StringIn("int", "char", "float", "bool", "string", "void", "T1", "T2").!).map {
+  def typeBase[_: P]: P[Type] = P((StringIn("int", "char", "float", "bool", "string", "void").!) | ("T" ~ CharsWhileIn("0-9", 1)).!).map {
     case "int" => Type.Num();
     case "char" => Type.Character();
     case "float" => Type.NumFloat();
     case "bool" => Type.Bool();
     case "string" => Type.Str();
     case "void" => Type.Undefined();
-    case "T1" => Type.T1();
+    case "T1" => Type.T(1);
+    case "T2" => Type.T(2);
   }
 
   def parens[_: P] = P("(" ~/ (binOp | prefixExpr) ~ ")")

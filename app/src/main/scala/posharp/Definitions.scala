@@ -87,7 +87,7 @@ object Type {
   case class Interface(name: String, properties: List[InputVar], functions: List[FunctionInfo]) extends Type
   case class StaticInterface(properties: List[InputVar], functions: List[FunctionInfo]) extends Type
   case class Function(args: List[Type], retType: Type) extends Type
-  case class T1() extends Type
+  case class T(num: Int) extends Type
   case class Enum(el: List[String]) extends Type
 
   //to be converted when parsing
@@ -103,14 +103,14 @@ object Type {
     case Interface(_, inner, innerf) => "itf_"+inner.map(x=>shortS(x.varType)).mkString+"_"+innerf.map(x=>x.name)+"_"
     case Function(args, retType) => "func_"+args.map(x=>shortS(x)).mkString+"_"+shortS(retType)
     case UserType(name) => name
-    case T1() => "T1"
+    case T(a) => s"T$a"
   }
   def compare(val1: Type, val2: Type): Boolean = (val1, val2) match {
     case (a,b) if a == b => true
-    case (T1(), _) => true
-    case (_, T1()) => true
-    case (Array(T1()), _) => true
-    case (_, Array(T1())) => true
+    case (T(_), _) => true
+    case (_, T(_)) => true
+    case (Array(T(_)), _) => true
+    case (_, Array(T(_))) => true
     case _ => false
   }
   def compare(value: (Type, Type)): Boolean = compare(value._1,value._2)
