@@ -9,7 +9,7 @@
 ## To do
 
 
-
+* make template functions explicit (diff syntax, otherwise conflict in template interfaces)
 * add copy command to arrays(and maybe structs)
 * rework file imports with explicit export command
 * add more object intrinsics(equal)

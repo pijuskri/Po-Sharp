@@ -45,8 +45,8 @@ object Expr{
   case class CallF(name: String, args: List[Expr]) extends Expr
   case class Return(value: Option[Expr]) extends Expr
 
-  case class DefineInterface(name: String, props: List[InputVar], functions: List[Func]) extends Expr
-  case class InstantiateInterface(intf: String, args: List[Expr]) extends Expr
+  case class DefineInterface(name: String, props: List[InputVar], functions: List[Func], templates: List[Type.T]) extends Expr
+  case class InstantiateInterface(intf: String, args: List[Expr], templates: List[Type]) extends Expr
   case class GetProperty(obj: Expr, prop: String) extends Expr
   case class CallObjFunc(obj: Expr, func: CallF) extends Expr
   case class SetInterfaceProp(intf: Expr, prop: String, value: Expr) extends Expr

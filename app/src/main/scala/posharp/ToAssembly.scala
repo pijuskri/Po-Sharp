@@ -45,6 +45,8 @@ object ToAssembly {
   var lambdas: List[(Expr.Func, Env)] = List()
   var templateFunctions: List[Expr.Func] = List()
   var templateFunctionInstances: List[Expr.Func] = List()
+  var templateInterfaces: List[Expr.DefineInterface] = List()
+  var templateInterfaceInstances: List[Expr.] = List()
   var functionScope: FunctionInfo = FunctionInfo("main", "", List(), Type.Num());
 
   def convertMain(input: Expr, currentFile: String, otherFiles: Map[String, Expr.TopLevel]): String = {
@@ -57,6 +59,8 @@ object ToAssembly {
     lambdas = List()
     templateFunctions = List()
     templateFunctionInstances = List()
+    templateInterfaces = List()
+    templateInterfaceInstances = List()
     functionScope = FunctionInfo("main", "", List(), Type.Num());
 
     var converted =
@@ -89,15 +93,17 @@ object ToAssembly {
       declareFunctions(x);
       converted += declareInterfaces(x) + "\n";
       //declareEnums(x)
+
+      val interfaceFunctionList: List[(Expr.Func, Env)] = x.interfaces.flatMap(intf =>
+        intf.functions.map(func => Expr.Func(intf.name + "_" + func.name, func.argNames, func.retType, func.body)))
+        .map(y => (y, Map()))
+      //TODO template function in interfaces ignored for now
+      //templateFunctions = (x.functions ::: interfaceFunctionList.map(y=>y._1)).filter(x=>isTemplateFunction(x))
       templateFunctions = x.functions.filter(x=>isTemplateFunction(x))
       converted += exportDeclarations(currentFile) + "\n"
       converted += handleImports(x, otherFiles) + "\n"
       converted += defineFunctions(x.functions.map(y=>(y, Map())), false);
-      converted += defineFunctions(x.interfaces.flatMap(intf=>
-        intf.functions.map(func=>Expr.Func(intf.name + "_" + func.name, func.argNames, func.retType, func.body)))
-        .map(y=>(y, Map())),
-        false
-      );
+      converted += defineFunctions(interfaceFunctionList, false);
     }}
     converted += defineFunctions(templateFunctionInstances.map(x=>(x, Map())), false)
     //converted += defineFunctions(lambdas, true);
@@ -125,7 +131,7 @@ object ToAssembly {
       case Expr.Ident(name) => {
         enums.find(x => x.name == name).orElse(interfaces.find(x=>x.name == name)).orElse(Some(lookup(name, env))) match {
           case Some(EnumInfo(_, el)) => ("", Type.Enum(el))
-          case Some(InterfaceInfo(itfName, props, funcs)) => ("", Type.Interface(itfName, props, funcs))
+          case Some(InterfaceInfo(itfName, props, funcs, templates)) => ("", Type.Interface(itfName, props, funcs))
           case Some((code: String, variable: Variable)) => (code, variable.varType)
           case _ => throw new Exception(s"unrecognised identifier $name")
         }
@@ -204,10 +210,29 @@ object ToAssembly {
         case (code, t@Type.Interface(_, props, funcs), loc) => callObjFunction(Expr.Compiled(code, t, loc), func, props, funcs, isStatic = false, env)
         case (code, t@Type.StaticInterface(props, funcs), loc) => callObjFunction(Expr.Compiled(code, t, loc), func, props, funcs, isStatic = true, env)
       }
-      case Expr.InstantiateInterface(name, values) => interfaces.find(x=>x.name == name) match {
+      case Expr.InstantiateInterface(name, values, templates) => interfaces.find(x=>x.name == name) match {
         case Some(intf) => {
           var aloc = "";
           val classT = s"%Class.$name"
+
+          if (intf.templates.length != templates.length)
+            throw new Exception(s"Wrong number of template types provided: expected ${intf.templates.length}, received ${templates.length}")
+          val templateMapping = (intf.templates zip templates)
+
+          val replace_func = (toReplace: Type) => {
+            toReplace match {
+              case t@Type.T(i) => {
+                templateMapping.find(x => t == x._1) match {
+                  case Some((_, typeToReplaceWith)) => typeToReplaceWith
+                  case None => throw new Exception(s"T$i template type could not be replaced")
+                }
+              }
+              case x => x
+            }
+          }
+
+          val out_type = traverseTypeTree(Type.Interface(name, intf.args, intf.funcs) ,replace_func)
+
 
           aloc += s"${varc.next()} = getelementptr $classT, $classT* null, i32 1\n" + s"${varc.next()} = ptrtoint $classT** ${varc.secondLast()} to i32\n"
           val bytesLoc = varc.last();
@@ -217,7 +242,9 @@ object ToAssembly {
           val valuesCompiled = values.map(x=>convertLoc(x, env)).map(x=>Expr.Compiled(x._1, x._2, x._3))
           intf.funcs.find(x=>x.name == name && x.args == values)
           val func_code = interpFunction(name+"_"+name, Expr.Compiled(aloc, UserType(name), alocLoc) +: valuesCompiled, env)._1
-          (func_code, Type.Interface(name, intf.args, intf.funcs))
+
+
+          (func_code, out_type)
         }
         case None => throw new Exception(s"no interface with name \"$name\" defined")
       }
@@ -387,9 +414,14 @@ object ToAssembly {
     functions = input.functions.map(x=> FunctionInfo(x.name, "", x.argNames, x.retType))
   }
   private def declareInterfaces(input: Expr.TopLevel): String = {
-    interfaces = input.interfaces.map(x=> InterfaceInfo(x.name, x.props, x.functions.map(x=>FunctionInfo(x.name,"", x.argNames,x.retType))))
-    functions = functions ::: interfaces.flatMap(x=>addPrefixToFunctions(x.name,x.funcs))
-    interfaces.map(intf => {
+    interfaces = input.interfaces.map(x=> InterfaceInfo(x.name, x.props, x.functions.map(x=>FunctionInfo(x.name,"", x.argNames,x.retType)), x.templates))
+
+    val completeInterfaces = interfaces.filter(x=>x.templates.isEmpty)
+    val templateInterfaces_ = interfaces.filter(x=>x.templates.nonEmpty)
+
+    functions = functions ::: completeInterfaces.flatMap(x=>addPrefixToFunctions(x.name,x.funcs))
+    templateInterfaces = templateInterfaces ::: templateInterfaces_
+    completeInterfaces.map(intf => {
       val types = intf.args.map(x=>Type.toLLVM(x.varType)).mkString(", ")
       s"%Class.${intf.name} = type {$types}\n"
     }).mkString
@@ -409,8 +441,8 @@ object ToAssembly {
           functions = functions :+ FunctionInfo(name, formatFName(imp.file), argnames, retType)
           List(FunctionInfo(name, formatFName(imp.file), argnames, retType))
         }
-        case Expr.DefineInterface(name, props, i_functions) => {
-          val intf = InterfaceInfo(name, props, i_functions.map(x=>FunctionInfo(x.name,formatFName(imp.file), x.argNames,x.retType)))
+        case Expr.DefineInterface(name, props, i_functions, templates) => {
+          val intf = InterfaceInfo(name, props, i_functions.map(x=>FunctionInfo(x.name,formatFName(imp.file), x.argNames,x.retType)), templates)
           interfaces = interfaces :+ intf
 
           val types = intf.args.map(x=>Type.toLLVM(x.varType)).mkString(", ")
@@ -528,12 +560,6 @@ object ToAssembly {
       case Some(info@FunctionInfo(p, prefix, argTypes, retType)) if isTemplateFunction(info)=> {
         val replace = templateFunctionArgs(info)
 
-        /*
-        val template_mappings = argInputTypes.zipWithIndex.filter(x => x._1 match {
-          case Type.T(i) => true
-          case _ => false
-        }).map(x=> (replace.find(y=>y._1 == x._2).get._2, x._1) )
-         */
         val template_mappings = replace.map(x => (x._2, argInputTypes.zipWithIndex.find(y=>y._2 == x._1).get._1))
 
         //TODO full error message
@@ -550,7 +576,8 @@ object ToAssembly {
         }}
         val func_expr = templateFunctions.find(x=>x.name==name && argTypes == x.argNames).get
         templateFunctionInstances = templateFunctionInstances :+ replaceType(func_expr, replace_func).asInstanceOf[Expr.Func]
-        functions = functions :+ FunctionInfo(p, prefix, argTypes.map(x=>InputVar(x.name, traverseTypeTree(x.varType, replace_func))), traverseTypeTree(retType, replace_func))
+        //functions = functions :+ FunctionInfo(p, prefix, argTypes.map(x=>InputVar(x.name, traverseTypeTree(x.varType, replace_func))), traverseTypeTree(retType, replace_func))
+        functions = functions :+ replaceType(info, replace_func)
       }
       case _ => ()
     }
@@ -572,53 +599,6 @@ object ToAssembly {
       };
     }
   }
-
-  /*
-
-  val out = (functions.find(x=>x.name == name && argInputTypes.length==x.args.length) match {
-      case Some(info@FunctionInfo(p, prefix, argTypes, retType)) if isTemplateFunction(info)=> {
-        val replace = templateFunctionArgs(info)
-
-        val template_mappings = argInputTypes.zipWithIndex.filter(x => x._1 match {
-          case Type.T(i) => true
-          case _ => false
-        }).map(x=> (replace.find(y=>y._1 == x._2).get._2, x._1) )
-
-        //TODO full error message
-        template_mappings.groupBy(x=>x._1).filter(x=>x._2.length>1).foreach(x=>throw new Exception(s"Template function input types conflicting"))
-
-        val replace_func = (toReplace: Type) => toReplace match {
-          case t@Type.T(i) => {
-            template_mappings.find(x=>t == x._1) match {
-              case Some((_, typeToReplaceWith)) => typeToReplaceWith
-              case None => throw new Exception(s"T$i template type could not be replaced")
-            }
-          }
-          case x => x
-        }
-        val func_expr = templateFunctions.find(x=>x.name==name && argTypes == x.argNames).get
-        templateFunctionInstances = templateFunctionInstances :+ replaceType(func_expr, replace_func).asInstanceOf[Expr.Func]
-
-      }
-      case None => None
-    }).getOrElse(
-    functions.find(x=>x.name == name && Type.compare(argInputTypes, x.args.map(x=>makeUserTypesConcrete(x.varType)))) match {
-      case Some(info@FunctionInfo(p, prefix, argTypes, retType)) => {
-        var tName = fNameSignature(info)
-        if(prefix != "") tName = prefix+"_"+tName;
-        val argTypeString = argTypes.map(x=>Type.toLLVM(x.varType)).mkString(", ")
-        if (retType != Type.Undefined()) ret += s"${varc.next()} = ";
-        ret += s"call ${Type.toLLVM(retType)} ($argTypeString) @$tName($argsString)\n"
-        (ret, retType)
-      }
-      case None => {
-        //println(Util.prettyPrint(functions.find(x=>x.name == name).map(x=>x.args.map(y=>InputVar(y.name,makeUserTypesConcrete(y.varType)))).get));
-        println(Util.prettyPrint(argInputTypes.last));
-        throw new Exception(s"no overload of function $name matches argument list $argInputTypes")
-      };
-    })
-    out
-   */
 
   def callObjFunction(obj: Expr, func: Expr.CallF, props: List[InputVar], funcs: List[FunctionInfo], isStatic: Boolean, env: Env): (String, Type) = {
     funcs.find(x=>x.name == func.name) match {
@@ -848,16 +828,24 @@ object ToAssembly {
     }
      */
     case Type.Interface(name, args,f) => Type.Interface(name,
-      args.map(x=>InputVar(x.name, traverseTypeTree(x.varType, func))),
-      f.map(x=>FunctionInfo(x.name, x.prefix, x.args.map(y=>
-        InputVar(y.name, traverseTypeTree(y.varType, func))
-      ), x.retType))
+      replaceType(args, func),
+      f.map(x=>replaceType(x, func))
     )
     case Type.Array(valType) => Type.Array(traverseTypeTree(valType, func))
     case Type.Function(args: List[Type], retType: Type) => Type.Function(args.map(x=>traverseTypeTree(x, func)), traverseTypeTree(retType, func))
     //StaticInterface(properties: List[InputVar], functions: List[FunctionInfo])
     case x => func(x)
   }
+  def replaceType(input: FunctionInfo, func: (Type) => Type): FunctionInfo = {
+    FunctionInfo(input.name, input.prefix,
+      replaceType(input.args, func),
+      traverseTypeTree(input.retType, func))
+  }
+
+  def replaceType(input: List[InputVar], func: (Type) => Type): List[InputVar] = {
+    input.map(x=>InputVar(x.name, traverseTypeTree(x.varType, func)))
+  }
+
   def replaceType(input: Expr, func: (Type) => Type): Expr = input match {
     case Expr.DefVal(a, varType) => Expr.DefVal(a, func(varType))
     case Expr.DefValWithValue(variable, varType, value) => Expr.DefValWithValue(variable, func(varType), value)
@@ -928,7 +916,7 @@ object ToAssembly {
   type Env = Map[String, Variable]
   case class FunctionInfo(name: String, prefix: String, args: List[InputVar], retType: Type)
   //case class InterfaceInfo(name: String, args: List[InputVar])
-  case class InterfaceInfo(name: String, args: List[InputVar], funcs: List[FunctionInfo])
+  case class InterfaceInfo(name: String, args: List[InputVar], funcs: List[FunctionInfo], templates: List[Type.T])
   case class EnumInfo(name: String, el: List[String])
   case class Variable(loc: String, varType: Type)
 }

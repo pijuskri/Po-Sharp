@@ -39,8 +39,8 @@ object Parser {
     Expr.DefineInterface(props._1.name, props._2.toList.map(x=>InputVar(x._1.name, x._2)))
   )
    */
-  def interfaceDef[_: P]: P[Expr.DefineInterface] = P("object " ~/ ident ~ "{" ~/ objValue ~ function.rep ~ "}").map(props =>
-    Expr.DefineInterface(props._1.name, props._2.map(x => InputVar(x.name, x.varType)), props._3.toList)
+  def interfaceDef[_: P]: P[Expr.DefineInterface] = P("object " ~/ ident ~ templateTypes.? ~ "{" ~/ objValue ~ function.rep ~ "}").map(props =>
+    Expr.DefineInterface(props._1.name, props._3.map(x => InputVar(x.name, x.varType)), props._4.toList, props._2.getOrElse(List()).asInstanceOf[Type.T])
   )
 
   def objValue[_: P]: P[List[ObjVal]] = P(ident ~ typeDef ~ ("=" ~ prefixExpr).? ~ ";").rep.map(x => x.map {
@@ -128,8 +128,10 @@ object Parser {
   def getArraySize[_: P]: P[Expr.ArraySize] = P(returnsArray ~~ ".size").map((x) => Expr.ArraySize(x))
 
 
-  def instanceInterface[_: P]: P[Expr.InstantiateInterface] = P("new " ~/ ident ~ "(" ~/ prefixExpr.rep(sep = ",") ~ ")").map(x => Expr.InstantiateInterface(x._1.name, x._2.toList))
+  def instanceInterface[_: P]: P[Expr.InstantiateInterface] = P("new " ~/ ident ~ templateTypes.? ~ "(" ~/ prefixExpr.rep(sep = ",") ~ ")")
+    .map(x => Expr.InstantiateInterface(x._1.name, x._3.toList, x._2.getOrElse(List())))
 
+  def templateTypes[_: P]: P[List[Type]] = (P("[" ~/ typeDefNoCol.rep(min=1, sep = ",") ~/ "]")).map(x=>x.toList)
   def typeDef[_: P]: P[Type] = P(":" ~/ (typeBase | typeArray | typeFunc | typeUser))
   def typeDefNoCol[_: P]: P[Type] = P(typeBase | typeArray | typeFunc | typeUser)
 
