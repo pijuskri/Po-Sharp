@@ -2,8 +2,9 @@ package posharp
 
 import fastparse.JavaWhitespace._
 import fastparse._
-
 import Expr.GetProperty
+import jdk.jshell.spi.ExecutionControl.NotImplementedException
+
 import scala.compat.Platform.EOL
 
 object Parser {
@@ -14,7 +15,7 @@ object Parser {
     var enum: List[Expr.DefineEnum] = List()
     var imports: List[Expr.Import] = List()
     x.foreach {
-      case y@Expr.Func(a, b, c, d) => func = func :+ y
+      case y@Expr.Func(a, b, c, d, e) => func = func :+ y
       case y@Expr.DefineInterface(a, b, c) => intf = intf :+ y
       case y@Expr.DefineEnum(a, b) => enum = enum :+ y
       case y@Expr.Import(a, b) => imports = imports :+ y
@@ -22,13 +23,13 @@ object Parser {
     Expr.TopLevel(func, intf, enum, imports)
   })
 
-  def function[_: P]: P[Expr.Func] = P("def " ~/ ident ~ "(" ~/ functionArgs ~ ")" ~/ typeDef.? ~ block).map {
-    case (name, args, retType, body) => {
+  def function[_: P]: P[Expr.Func] = P("def " ~/ ident ~ templateTypes.? ~ "(" ~/ functionArgs ~ ")" ~/ typeDef.? ~ block).map {
+    case (name, templates, args, retType, body) => {
       val ret = retType match {
         case Some(typ) => typ
         case None => Type.Undefined()
       }
-      Expr.Func(name.name, args, ret, body)
+      Expr.Func(name.name, args, ret, body, templates.getOrElse(List()).asInstanceOf[List[Type.T]])
     }
   }
 
@@ -76,7 +77,7 @@ object Parser {
     acs.foldLeft(start: Expr)((acc, v) => v match {
       case (".", Expr.Ident(ident)) => GetProperty(acc, ident)
       case ("[", index: Expr) => Expr.GetArray(acc, index)
-      case (".", Expr.Ident(ident), "(", args: List[Expr]) => Expr.CallObjFunc(acc, Expr.CallF(ident, args))
+      case (".", Expr.Ident(ident), "(", args: List[Expr]) => throw new NotImplementedException("")//Expr.CallObjFunc(acc, Expr.CallF(ident, args))
       case x => throw new ParseException(s"bad var access: $x");
     })
   }
@@ -157,9 +158,11 @@ object Parser {
     case (value, "toChar") => Expr.Convert(value, Type.Character())
   }
 
-  def callFunction[_: P]: P[Expr.CallF] = P(ident ~ "(" ~/ prefixExpr.rep(sep = ",") ~/ ")").map {
-    case (name, args) => Expr.CallF(name.name, args.toList);
+  def callFunction[_: P]: P[Expr.CallF] = P(ident ~ templateTypes.? ~ "(" ~/ prefixExpr.rep(sep = ",") ~/ ")").map {
+    case (name, templates, args) => Expr.CallF(name.name, args.toList, templates.getOrElse(List()));
   }//.filter((x) => !reservedKeywords.contains(x.name))
+
+  def templateTypes[_: P]: P[List[Type]] = (P("[" ~/ typeDefNoCol.rep(min=1, sep = ",") ~/ "]")).map(x=>x.toList)
 
   def retFunction[_: P]: P[Expr.Return] = P("return" ~/ prefixExpr.?).map(Expr.Return)
 

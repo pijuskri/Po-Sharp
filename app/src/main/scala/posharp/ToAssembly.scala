@@ -45,7 +45,7 @@ object ToAssembly {
   var lambdas: List[(Expr.Func, Env)] = List()
   var templateFunctions: List[Expr.Func] = List()
   var templateFunctionInstances: List[Expr.Func] = List()
-  var functionScope: FunctionInfo = FunctionInfo("main", "", List(), Type.Num());
+  var functionScope: FunctionInfo = FunctionInfo("main", "", List(), Type.Num(), List());
 
   def convertMain(input: Expr, currentFile: String, otherFiles: Map[String, Expr.TopLevel]): String = {
     ifCounter = 0;
@@ -57,7 +57,7 @@ object ToAssembly {
     lambdas = List()
     templateFunctions = List()
     templateFunctionInstances = List()
-    functionScope = FunctionInfo("main", "", List(), Type.Num());
+    functionScope = FunctionInfo("main", "", List(), Type.Num(), List());
 
     var converted =
       """
@@ -92,14 +92,14 @@ object ToAssembly {
       templateFunctions = x.functions.filter(x=>isTemplateFunction(x))
       converted += exportDeclarations(currentFile) + "\n"
       converted += handleImports(x, otherFiles) + "\n"
-      converted += defineFunctions(x.functions.map(y=>(y, Map())), false);
+      converted += defineFunctions(x.functions.map(y=>(y, Map())), false, false);
       converted += defineFunctions(x.interfaces.flatMap(intf=>
-        intf.functions.map(func=>Expr.Func(intf.name + "_" + func.name, func.argNames, func.retType, func.body)))
+        intf.functions.map(func=>Expr.Func(intf.name + "_" + func.name, func.argNames, func.retType, func.body, func.templates)))
         .map(y=>(y, Map())),
-        false
+        false, false
       );
     }}
-    converted += defineFunctions(templateFunctionInstances.map(x=>(x, Map())), false)
+    converted += defineFunctions(templateFunctionInstances.map(x=>(x, Map())), false, true)
     //converted += defineFunctions(lambdas, true);
     converted += stringLiterals.mkString
     converted += """attributes #0 = { mustprogress noinline nounwind optnone uwtable "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }
@@ -195,8 +195,8 @@ object ToAssembly {
         case (code, Type.Array(a), loc) if prop == "size" => getArraySize(Expr.Compiled(code, Type.Array(a), loc), env)//conv(Expr.ArraySize(obj))
         case (_, valType, _) => throw new Exception(s"expected a interface, got ${valType}")
       }
-      case Expr.CallF(name, args) => {
-        if(functions.exists(x=>x.name == name)) interpFunction(name, args, env)
+      case Expr.CallF(name, args, templates) => {
+        if(functions.exists(x=>x.name == name)) interpFunction(name, args, templates, env)
         //else if(env.contains(name)) callLambda(Expr.Ident(name), args, reg, env)
         else throw new Exception(s"unknown identifier $name")
       }
@@ -216,7 +216,7 @@ object ToAssembly {
 
           val valuesCompiled = values.map(x=>convertLoc(x, env)).map(x=>Expr.Compiled(x._1, x._2, x._3))
           intf.funcs.find(x=>x.name == name && x.args == values)
-          val func_code = interpFunction(name+"_"+name, Expr.Compiled(aloc, UserType(name), alocLoc) +: valuesCompiled, env)._1
+          val func_code = interpFunction(name+"_"+name, Expr.Compiled(aloc, UserType(name), alocLoc) +: valuesCompiled, List(), env)._1
           (func_code, Type.Interface(name, intf.args, intf.funcs))
         }
         case None => throw new Exception(s"no interface with name \"$name\" defined")
@@ -338,7 +338,7 @@ object ToAssembly {
         defineString(msg) + printTemplate("format_string", "i8*", varc.last()) + "call void @exit(i32 1)\n" // "br label %exception\n"
       }
       case x@Expr.CallObjFunc(obj, func) => convert(x, env)._1;
-      case x@Expr.CallF(n, a) => convert(x, env)._1;
+      case x@Expr.CallF(_,_,_) => convert(x, env)._1;
       case Expr.Return(in) => {
         in match {
           case Some(value) => {
@@ -384,17 +384,17 @@ object ToAssembly {
   }
 
   private def declareFunctions(input: Expr.TopLevel): Unit = {
-    functions = input.functions.map(x=> FunctionInfo(x.name, "", x.argNames, x.retType))
+    functions = input.functions.map(x=> FunctionInfo(x.name, "", x.argNames, x.retType, x.templates))
   }
   private def declareInterfaces(input: Expr.TopLevel): String = {
-    interfaces = input.interfaces.map(x=> InterfaceInfo(x.name, x.props, x.functions.map(x=>FunctionInfo(x.name,"", x.argNames,x.retType))))
+    interfaces = input.interfaces.map(x=> InterfaceInfo(x.name, x.props, x.functions.map(x=>FunctionInfo(x.name,"", x.argNames,x.retType,x.templates))))
     functions = functions ::: interfaces.flatMap(x=>addPrefixToFunctions(x.name,x.funcs))
     interfaces.map(intf => {
       val types = intf.args.map(x=>Type.toLLVM(x.varType)).mkString(", ")
       s"%Class.${intf.name} = type {$types}\n"
     }).mkString
   }
-  private def addPrefixToFunctions(prefix: String, funcs: List[FunctionInfo]): List[FunctionInfo] = funcs.map(y=>FunctionInfo(prefix+"_"+y.name, y.prefix, y.args, y.retType))
+  private def addPrefixToFunctions(prefix: String, funcs: List[FunctionInfo]): List[FunctionInfo] = funcs.map(y=>FunctionInfo(prefix+"_"+y.name, y.prefix, y.args, y.retType,y.templates))
   private def declareEnums(input: Expr.TopLevel): Unit = {
     enums = input.enums.map(x=>EnumInfo(x.name,x.props))
   }
@@ -405,12 +405,12 @@ object ToAssembly {
       var ret = ""
 
       val funcsForImport = searchFileDeclarations(top, imp) match {
-        case Expr.Func(name, argnames, retType, code) => {
-          functions = functions :+ FunctionInfo(name, formatFName(imp.file), argnames, retType)
-          List(FunctionInfo(name, formatFName(imp.file), argnames, retType))
+        case Expr.Func(name, argnames, retType, code, templates) => {
+          functions = functions :+ FunctionInfo(name, formatFName(imp.file), argnames, retType, templates)
+          List(FunctionInfo(name, formatFName(imp.file), argnames, retType, templates))
         }
         case Expr.DefineInterface(name, props, i_functions) => {
-          val intf = InterfaceInfo(name, props, i_functions.map(x=>FunctionInfo(x.name,formatFName(imp.file), x.argNames,x.retType)))
+          val intf = InterfaceInfo(name, props, i_functions.map(x=>FunctionInfo(x.name,formatFName(imp.file), x.argNames,x.retType,x.templates)))
           interfaces = interfaces :+ intf
 
           val types = intf.args.map(x=>Type.toLLVM(x.varType)).mkString(", ")
@@ -418,7 +418,7 @@ object ToAssembly {
 
           val funcs = addPrefixToFunctions(intf.name,intf.funcs)
           functions = functions ::: funcs
-          funcs.map(x=>FunctionInfo(x.name, formatFName(imp.file), x.args, x.retType))
+          funcs.map(x=>FunctionInfo(x.name, formatFName(imp.file), x.args, x.retType,x.templates))
         }
       }
       ret + funcsForImport.map(info=>{
@@ -483,9 +483,9 @@ object ToAssembly {
     s"${Type.toLLVM(info.retType)} ($args)"
   }
 
-  private def defineFunctions(input: List[(Expr.Func, Env)], lambdaMode: Boolean): String = {
+  private def defineFunctions(input: List[(Expr.Func, Env)], lambdaMode: Boolean, templated: Boolean): String = {
     input.map{ case (function, upperScope) => {
-      if(isTemplateFunction(function)) {
+      if(isTemplateFunction(function) && !templated) {
         ""
       }
       else {
@@ -515,7 +515,7 @@ object ToAssembly {
       }
     }}.mkString
   }
-  def interpFunction(name: String, args: List[Expr], env: Env ): (String, Type) = {
+  def interpFunction(name: String, args: List[Expr], templates: List[Type], env: Env ): (String, Type) = {
     val argRet = args.map(arg => convertLoc(arg, env))
     val argInputTypes = argRet.map(x => makeUserTypesConcrete(x._2))
     var ret = argRet.map(x=>x._1).mkString
@@ -525,8 +525,9 @@ object ToAssembly {
       case Some(x) => ; case None => throw new Exception(s"function of name $name undefined");
     }
     functions.find(x=>x.name == name && argInputTypes.length==x.args.length) match {
-      case Some(info@FunctionInfo(p, prefix, argTypes, retType)) if isTemplateFunction(info)=> {
-        val replace = templateFunctionArgs(info)
+      case Some(info@FunctionInfo(p, prefix, argTypes, retType, _)) if isTemplateFunction(info)=> {
+        //TODO error check
+        val template_mappings = info.templates.zip(templates)//templateFunctionArgs(info, templates)
 
         /*
         val template_mappings = argInputTypes.zipWithIndex.filter(x => x._1 match {
@@ -534,10 +535,11 @@ object ToAssembly {
           case _ => false
         }).map(x=> (replace.find(y=>y._1 == x._2).get._2, x._1) )
          */
-        val template_mappings = replace.map(x => (x._2, argInputTypes.zipWithIndex.find(y=>y._2 == x._1).get._1))
+        //val template_mappings = replace.map(x => (x._2, argInputTypes.zipWithIndex.find(y=>y._2 == x._1).get._1))
+        //val template_mappings = replace
 
         //TODO full error message
-        template_mappings.groupBy(x=>x._1).filter(x=>x._2.length>1).foreach(x=>throw new Exception(s"Template function input types conflicting"))
+        template_mappings.groupBy(x=>x._1).filter(x=>Set(x._2).toList.length>1).foreach(x=>throw new Exception(s"Template function input types conflicting"))
         //println(template_mappings)
         val replace_func = (toReplace: Type) => {toReplace match {
           case t@Type.T(i) => {
@@ -548,16 +550,18 @@ object ToAssembly {
           }
           case x => x
         }}
-        val func_expr = templateFunctions.find(x=>x.name==name && argTypes == x.argNames).get
+        var func_expr = templateFunctions.find(x=>x.name==name && argTypes == x.argNames).get
+        //func_expr = Expr.Func(func_expr.name,func_expr.argNames,func_expr.retType,func_expr.body,func_expr.templates)
         templateFunctionInstances = templateFunctionInstances :+ replaceType(func_expr, replace_func).asInstanceOf[Expr.Func]
-        functions = functions :+ FunctionInfo(p, prefix, argTypes.map(x=>InputVar(x.name, traverseTypeTree(x.varType, replace_func))), traverseTypeTree(retType, replace_func))
+        //TODO unsure if templates or input.templates is best
+        functions = functions :+ FunctionInfo(p, prefix, argTypes.map(x=>InputVar(x.name, traverseTypeTree(x.varType, replace_func))), traverseTypeTree(retType, replace_func), info.templates)
       }
       case _ => ()
     }
 
     //functions.find(x=>x.name == name && Type.compare(argInputTypes, x.args.map(x=>makeUserTypesConcrete(x.varType)))) match {
     functions.find(x=>x.name == name && argInputTypes == x.args.map(x=>makeUserTypesConcrete(x.varType))) match {
-      case Some(info@FunctionInfo(p, prefix, argTypes, retType)) => {
+      case Some(info@FunctionInfo(p, prefix, argTypes, retType, templates)) => {
         var tName = fNameSignature(info)
         if(prefix != "") tName = prefix+"_"+tName;
         val argTypeString = argTypes.map(x=>Type.toLLVM(x.varType)).mkString(", ")
@@ -573,52 +577,6 @@ object ToAssembly {
     }
   }
 
-  /*
-
-  val out = (functions.find(x=>x.name == name && argInputTypes.length==x.args.length) match {
-      case Some(info@FunctionInfo(p, prefix, argTypes, retType)) if isTemplateFunction(info)=> {
-        val replace = templateFunctionArgs(info)
-
-        val template_mappings = argInputTypes.zipWithIndex.filter(x => x._1 match {
-          case Type.T(i) => true
-          case _ => false
-        }).map(x=> (replace.find(y=>y._1 == x._2).get._2, x._1) )
-
-        //TODO full error message
-        template_mappings.groupBy(x=>x._1).filter(x=>x._2.length>1).foreach(x=>throw new Exception(s"Template function input types conflicting"))
-
-        val replace_func = (toReplace: Type) => toReplace match {
-          case t@Type.T(i) => {
-            template_mappings.find(x=>t == x._1) match {
-              case Some((_, typeToReplaceWith)) => typeToReplaceWith
-              case None => throw new Exception(s"T$i template type could not be replaced")
-            }
-          }
-          case x => x
-        }
-        val func_expr = templateFunctions.find(x=>x.name==name && argTypes == x.argNames).get
-        templateFunctionInstances = templateFunctionInstances :+ replaceType(func_expr, replace_func).asInstanceOf[Expr.Func]
-
-      }
-      case None => None
-    }).getOrElse(
-    functions.find(x=>x.name == name && Type.compare(argInputTypes, x.args.map(x=>makeUserTypesConcrete(x.varType)))) match {
-      case Some(info@FunctionInfo(p, prefix, argTypes, retType)) => {
-        var tName = fNameSignature(info)
-        if(prefix != "") tName = prefix+"_"+tName;
-        val argTypeString = argTypes.map(x=>Type.toLLVM(x.varType)).mkString(", ")
-        if (retType != Type.Undefined()) ret += s"${varc.next()} = ";
-        ret += s"call ${Type.toLLVM(retType)} ($argTypeString) @$tName($argsString)\n"
-        (ret, retType)
-      }
-      case None => {
-        //println(Util.prettyPrint(functions.find(x=>x.name == name).map(x=>x.args.map(y=>InputVar(y.name,makeUserTypesConcrete(y.varType)))).get));
-        println(Util.prettyPrint(argInputTypes.last));
-        throw new Exception(s"no overload of function $name matches argument list $argInputTypes")
-      };
-    })
-    out
-   */
 
   def callObjFunction(obj: Expr, func: Expr.CallF, props: List[InputVar], funcs: List[FunctionInfo], isStatic: Boolean, env: Env): (String, Type) = {
     funcs.find(x=>x.name == func.name) match {
@@ -630,7 +588,7 @@ object ToAssembly {
           if(isStatic) throw new Exception(s"can not call method $func staticly")
           else args = obj +: args
         }
-        interpFunction(intfName+"_"+func.name, args, env)
+        interpFunction(intfName+"_"+func.name, args, func.templates, env)
       }
       case None => props.find(x=>x.name == func.name) match {
         case Some(InputVar(_, Type.Function(_,_))) => {
@@ -814,11 +772,14 @@ object ToAssembly {
 
 
   def isTemplateFunction(input: Expr.Func): Boolean = {
-    templateFunctionArgs(input).nonEmpty
+    //templateFunctionArgs(input).nonEmpty
+    input.templates.nonEmpty
   }
   def isTemplateFunction(input: FunctionInfo): Boolean = {
-    templateFunctionArgs(input).nonEmpty
+    input.templates.nonEmpty
+    //templateFunctionArgs(input).nonEmpty
   }
+  /*
   def templateFunctionArgs(input: Expr.Func): List[(Int, Type.T)] = {
     return input.argNames.zipWithIndex.filter(x=>x._1.varType match {
       case Type.T(a) => true
@@ -835,6 +796,7 @@ object ToAssembly {
       case Type.T(a) => (x._2, Type.T(a))
     })
   }
+   */
 
   def traverseTypeTree(input: Type, func: (Type) => Type): Type = input match {
     /*
@@ -851,7 +813,7 @@ object ToAssembly {
       args.map(x=>InputVar(x.name, traverseTypeTree(x.varType, func))),
       f.map(x=>FunctionInfo(x.name, x.prefix, x.args.map(y=>
         InputVar(y.name, traverseTypeTree(y.varType, func))
-      ), x.retType))
+      ), x.retType, x.templates))
     )
     case Type.Array(valType) => Type.Array(traverseTypeTree(valType, func))
     case Type.Function(args: List[Type], retType: Type) => Type.Function(args.map(x=>traverseTypeTree(x, func)), traverseTypeTree(retType, func))
@@ -859,9 +821,10 @@ object ToAssembly {
     case x => func(x)
   }
   def replaceType(input: Expr, func: (Type) => Type): Expr = input match {
-    case Expr.DefVal(a, varType) => Expr.DefVal(a, func(varType))
-    case Expr.DefValWithValue(variable, varType, value) => Expr.DefValWithValue(variable, func(varType), value)
-    case Expr.Func(name, argNames, retType, body) => Expr.Func(name, argNames.map(x=>InputVar(x.name, traverseTypeTree(x.varType, func))), func(retType), replaceType(body, func).asInstanceOf[Expr.Block])
+    case Expr.DefVal(a, varType) => Expr.DefVal(a, traverseTypeTree(varType, func))
+    case Expr.DefValWithValue(variable, varType, value) => Expr.DefValWithValue(variable, traverseTypeTree(varType, func), value)
+    case Expr.Func(name, argNames, retType, body, templates) => Expr.Func(name, argNames.map(x=>
+      InputVar(x.name, traverseTypeTree(x.varType, func))), traverseTypeTree(retType, func), replaceType(body, func).asInstanceOf[Expr.Block], templates)
     case Expr.Block(lines) => Expr.Block(lines.map(x=>replaceType(x, func)))
     case x => x
         //case  Expr.While(condition: Expr, execute: Expr.Block) =>
@@ -895,15 +858,15 @@ object ToAssembly {
         else floatBinOpTemplate(codeLeft, vLeft, codeRight+con, varc.last(), command)
       }
       case ((codeLeft, tyLeft: Type.Interface, vLeft), (codeRight, tyRight: Type.Interface, vRight)) if (tyLeft == tyRight && command == "add") =>
-        convert(Expr.CallObjFunc(Expr.Compiled(codeLeft, tyLeft, vLeft), Expr.CallF("__add__", List(Expr.Compiled(codeRight, tyRight, vRight)))), env)
+        convert(Expr.CallObjFunc(Expr.Compiled(codeLeft, tyLeft, vLeft), Expr.CallF("__add__", List(Expr.Compiled(codeRight, tyRight, vRight)), List())), env)
       case ((codeLeft, typeLeft, x), (codeRight, typeRight, y)) => throw new Exception(s"can't perform arithmetic on operands of types ${typeLeft} and ${typeRight}");
     }
   }
 
   def printTemplate(format: String, ty: String, loc: String): String = {
     s"%ret.${varc.extra()} = call i32 (ptr, ...) @printf(ptr @$format, $ty ${loc})\n" +
-      s"${varc.next()} = load ptr, ptr @stdout, align 8" +
-    s"call void @setbuf(ptr noundef ${varc.last()}, ptr noundef null)"
+      s"${varc.next()} = load ptr, ptr @stdout, align 8\n" +
+    s"call void @setbuf(ptr noundef ${varc.last()}, ptr noundef null)\n"
   }
   def printInterp(toPrint: Expr, env: Env): String = {
     val converted = convertLoc(toPrint, env)
@@ -913,7 +876,7 @@ object ToAssembly {
       case Type.NumFloat() => converted._1 + printTemplate("format_float", "double", converted._3);
       case Type.Str() => converted._1 + printTemplate("format_string", "ptr", converted._3);
       case Type.Character() => converted._1 + printTemplate("format_char", "i8", converted._3);
-      case Type.Interface(a,b,c) => convert(Expr.CallObjFunc(Expr.Compiled(converted._1, converted._2, converted._3), Expr.CallF("__print__", List())), env)._1
+      case Type.Interface(a,b,c) => convert(Expr.CallObjFunc(Expr.Compiled(converted._1, converted._2, converted._3), Expr.CallF("__print__", List(), List())), env)._1
       /*
       case Type.Bool() => converted._1 + s"cmp rax, 0\nje bool_${ifCounter}\n" + printTemplate("format_true") +
         s"jmp boole_${ifCounter}\nbool_${ifCounter}:\n" + printTemplate("format_false") + s"boole_${ifCounter}:\n";
@@ -926,7 +889,7 @@ object ToAssembly {
   }
 
   type Env = Map[String, Variable]
-  case class FunctionInfo(name: String, prefix: String, args: List[InputVar], retType: Type)
+  case class FunctionInfo(name: String, prefix: String, args: List[InputVar], retType: Type, templates: List[Type.T])
   //case class InterfaceInfo(name: String, args: List[InputVar])
   case class InterfaceInfo(name: String, args: List[InputVar], funcs: List[FunctionInfo])
   case class EnumInfo(name: String, el: List[String])
