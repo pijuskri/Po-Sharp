@@ -5,7 +5,8 @@
 ## Bugs
 * ~~functions have limited checking before llvm catches it (especially multiple constructors)~~
 * remove l prefix from register names
-
+* call same template function twice
+* print is a reserved keyword
 ## To do
 
 

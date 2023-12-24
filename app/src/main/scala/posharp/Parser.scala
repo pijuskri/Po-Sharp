@@ -16,7 +16,7 @@ object Parser {
     var imports: List[Expr.Import] = List()
     x.foreach {
       case y@Expr.Func(a, b, c, d, e) => func = func :+ y
-      case y@Expr.DefineInterface(a, b, c) => intf = intf :+ y
+      case y@Expr.DefineInterface(a, b, c, d) => intf = intf :+ y
       case y@Expr.DefineEnum(a, b) => enum = enum :+ y
       case y@Expr.Import(a, b) => imports = imports :+ y
     }
@@ -40,9 +40,8 @@ object Parser {
     Expr.DefineInterface(props._1.name, props._2.toList.map(x=>InputVar(x._1.name, x._2)))
   )
    */
-  def interfaceDef[_: P]: P[Expr.DefineInterface] = P("object " ~/ ident ~ "{" ~/ objValue ~ function.rep ~ "}").map(props =>
-    Expr.DefineInterface(props._1.name, props._2.map(x => InputVar(x.name, x.varType)), props._3.toList)
-  )
+  def interfaceDef[_: P]: P[Expr.DefineInterface] = P("object " ~/ ident ~ templateTypes.? ~ "{" ~/ objValue ~ function.rep ~ "}").map(props =>
+    Expr.DefineInterface(props._1.name, props._3.map(x => InputVar(x.name, x.varType)), props._4.toList, props._2.getOrElse(List()).asInstanceOf[List[Type.T]]))
 
   def objValue[_: P]: P[List[ObjVal]] = P(ident ~ typeDef ~ ("=" ~ prefixExpr).? ~ ";").rep.map(x => x.map {
     case (id, valtype, Some(value)) => ObjVal(id.name, valtype, value)
@@ -77,7 +76,8 @@ object Parser {
     acs.foldLeft(start: Expr)((acc, v) => v match {
       case (".", Expr.Ident(ident)) => GetProperty(acc, ident)
       case ("[", index: Expr) => Expr.GetArray(acc, index)
-      case (".", Expr.Ident(ident), "(", args: List[Expr]) => throw new NotImplementedException("")//Expr.CallObjFunc(acc, Expr.CallF(ident, args))
+      //TODO template functions not handled
+      case (".", Expr.Ident(ident), "(", args: List[Expr]) => Expr.CallObjFunc(acc, Expr.CallF(ident, args, List())) //throw new NotImplementedException("")
       case x => throw new ParseException(s"bad var access: $x");
     })
   }
@@ -129,7 +129,8 @@ object Parser {
   def getArraySize[_: P]: P[Expr.ArraySize] = P(returnsArray ~~ ".size").map((x) => Expr.ArraySize(x))
 
 
-  def instanceInterface[_: P]: P[Expr.InstantiateInterface] = P("new " ~/ ident ~ "(" ~/ prefixExpr.rep(sep = ",") ~ ")").map(x => Expr.InstantiateInterface(x._1.name, x._2.toList))
+  def instanceInterface[_: P]: P[Expr.InstantiateInterface] = P("new " ~/ ident ~ templateTypes.? ~ "(" ~/ prefixExpr.rep(sep = ",") ~ ")")
+    .map(x => Expr.InstantiateInterface(x._1.name, x._3.toList, x._2.getOrElse(List())))
 
   def typeDef[_: P]: P[Type] = P(":" ~/ (typeBase | typeArray | typeFunc | typeUser))
   def typeDefNoCol[_: P]: P[Type] = P(typeBase | typeArray | typeFunc | typeUser)
@@ -137,7 +138,7 @@ object Parser {
   def typeArray[_: P]: P[Type] = P("array" ~/ "[" ~ typeDefNoCol ~ "]").map(x => Type.Array(x))
   def typeFunc[_: P]: P[Type] = P("func" ~/ "[" ~ "(" ~ typeDefNoCol.rep(sep=",") ~ ")" ~/ "=>" ~ typeDefNoCol ~ "]").map(x => Type.Function(x._1.toList, x._2))
 
-  def typeUser[_: P]: P[Type] = P(ident).map(x => Type.UserType(x.name))
+  def typeUser[_: P]: P[Type] = P(ident ~ templateTypes.?).map(x => Type.UserType(x._1.name, x._2.getOrElse(List())))
 
   def typeBase[_: P]: P[Type] = P((StringIn("int", "char", "float", "bool", "string", "void").!) | ("T" ~ CharsWhileIn("0-9", 1)).!).map {
     case "int" => Type.Num();
@@ -255,7 +256,7 @@ object Parser {
   def parseInput(input: String): Expr = {
     val parsed = fastparse.parse(input, topLevel(_), verboseFailures = true);
     parsed match {
-      case Parsed.Success(expr, n) => expr;
+      case Parsed.Success(expr, n) => expr.asInstanceOf[Expr];
       case t: Parsed.Failure => {
         println(t.trace(true).longAggregateMsg); throw new ParseException("parsing fail");
       }

@@ -61,6 +61,20 @@ class TestExample {
     "{def a; a = 5; print(a);}"
       .ShouldThrow(new ParseException(""))
 
+  def runTestGenericFunction1(): (Boolean, String) =
+    """def add[T1](a: T1, b: T1): T1 {
+      |    return (a+b);
+      |}
+      |
+      |def main(): int {
+      |    val b = add[int](2,3);
+      |    val a = add[float](2.0,3.0);
+      |    print(b);
+      |}""".stripMargin
+      .ShouldBe("5")
+      .Run()
+
+
   def runTestBig(): (Boolean, String) = {
     """
       object Dynamic {
