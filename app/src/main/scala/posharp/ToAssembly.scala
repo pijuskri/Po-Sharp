@@ -59,6 +59,8 @@ object ToAssembly {
     lambdas = List()
     templateFunctions = List()
     templateFunctionInstances = List()
+    templateInterfaces = List()
+    templateInterfaceInstances = List()
     functionScope = FunctionInfo("main", "", List(), Type.Num(), List());
 
     var converted =
@@ -93,7 +95,6 @@ object ToAssembly {
         ).filter(y=>y.templates.isEmpty)
         .map(y => (y, Map()))
       //TODO template function in interfaces ignored for now
-      //templateFunctions = (x.functions ::: interfaceFunctionList.map(y=>y._1)).filter(x=>isTemplateFunction(x))
 
       declareFunctions(x);
       converted += declareInterfaces(x) + "\n";
@@ -434,7 +435,7 @@ object ToAssembly {
     functions = functions ::: non_generic_intf.flatMap(x=>addPrefixToFunctions(x.name,x.funcs))
     non_generic_intf.map(intf => {
       val types = intf.args.map(x=>Type.toLLVM(x.varType)).mkString(", ")
-      s"%Class.${intf.name} = type {$types}\n"
+      s"%Class.${intf.name}. = type {$types}\n"
     }).mkString
   }
   //https://stackoverflow.com/questions/3307427/scala-double-definition-2-methods-have-the-same-type-erasure
@@ -536,7 +537,6 @@ object ToAssembly {
 
   private def defineFunctions(input: List[(Expr.Func, Env)], lambdaMode: Boolean, templated: Boolean): String = {
     input.map{ case (function, upperScope) => {
-      println(function.templates)
       if(isTemplateFunction(function) && !templated) {
         ""
       }
@@ -578,22 +578,14 @@ object ToAssembly {
     functions.find(x=>x.name == name) match {
       case Some(x) => ; case None => throw new Exception(s"function of name $name undefined");
     }
-    functions.find(x=>x.name == name && argInputTypes.length==x.args.length) match {
-      case Some(info@FunctionInfo(p, prefix, argTypes, retType, _)) if isTemplateFunction(info)=> {
-        //TODO error check
+    functions.find(x=>x.name == name && argInputTypes.length==x.args.length && isTemplateFunction(x)) match {
+      case Some(info@FunctionInfo(p, prefix, argTypes, retType, _)) => {
+
+        if(info.templates.length != templates.length) throw new Exception(s"Wrong template count for calling function $name")
         val template_mappings = info.templates.zip(templates)//templateFunctionArgs(info, templates)
 
-        /*
-        val template_mappings = argInputTypes.zipWithIndex.filter(x => x._1 match {
-          case Type.T(i) => true
-          case _ => false
-        }).map(x=> (replace.find(y=>y._1 == x._2).get._2, x._1) )
-         */
-        //val template_mappings = replace.map(x => (x._2, argInputTypes.zipWithIndex.find(y=>y._2 == x._1).get._1))
-        //val template_mappings = replace
-
-        //TODO full error message
-        template_mappings.groupBy(x=>x._1).filter(x=>Set(x._2).toList.length>1).foreach(x=>throw new Exception(s"Template function input types conflicting"))
+        template_mappings.groupBy(x=>x._1).filter(x=>Set(x._2).toList.length>1)
+          .foreach(x=>throw new Exception(s"Template function $name input types conflicting, received: ${x._2}"))
         //println(template_mappings)
         val replace_func = replaceWithMappingFunc(template_mappings)
 
@@ -608,8 +600,7 @@ object ToAssembly {
 
     //functions.find(x=>x.name == name && Type.compare(argInputTypes, x.args.map(x=>makeUserTypesConcrete(x.varType)))) match {
     //println(Util.prettyPrint(functions))
-    //println(env)
-    // && x.templates == templates
+
     functions.find(x=>x.name == name && argInputTypes == x.args.map(x=>makeUserTypesConcrete(x.varType))) match {
       case Some(info@FunctionInfo(p, prefix, argTypes, retType, templates)) => {
         var tName = fNameSignature(info)

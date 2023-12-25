@@ -74,6 +74,29 @@ class TestExample {
       .ShouldBe("5")
       .Run()
 
+  def runTestGenericInterface1(): (Boolean, String) =
+    """object Test[T1] {
+      |    toPrint: T1;
+      |    def Test(self: Test[T1], toPrint: T1): Test[T1] {
+      |        self.toPrint = toPrint;
+      |        return self;
+      |    }
+      |    def __print__(self: Test[T1]) {
+      |        print(self.toPrint);
+      |        print("\n");
+      |    }
+      |}
+      |
+      |def main(): int {
+      |    val c = new Test[int](10);
+      |    val d = new Test[float](10.5);
+      |    print(d);
+      |    print("\n");
+      |    print(c);
+      |}""".stripMargin.stripMargin
+      .ShouldBe("10")
+      .Run()
+
 
   def runTestBig(): (Boolean, String) = {
     """
