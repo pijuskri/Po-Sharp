@@ -1,9 +1,13 @@
 package posharp
 
-import posharp.Type.{UserType, shortS, toLLVM}
+import posharp.Type.{UserType, defaultValue, shortS, toLLVM}
+import sourcecode.Text.generate
 
 import scala.io.AnsiColor
 import scala.language.postfixOps
+import scala.reflect.runtime.currentMirror
+import scala.reflect.runtime.universe.{TypeTag, termNames, typeOf}
+import scala.reflect.ClassTag
 
 class Counter {
   var counter = 1;
@@ -736,6 +740,7 @@ object ToAssembly {
       else if(converted._2 != elemType) throw new Exception(s"array elements are of different types")
       converted
     })
+
     val array_elem_size = arraySizeFromType(elemType);
     val Tsig = Type.toLLVM(elemType)
     val arrTC = s"%Type.array.$Tsig"
@@ -827,26 +832,8 @@ object ToAssembly {
   }
   def isTemplateFunction(input: FunctionInfo): Boolean = {
     input.templates.nonEmpty
-    //templateFunctionArgs(input).nonEmpty
   }
-  /*
-  def templateFunctionArgs(input: Expr.Func): List[(Int, Type.T)] = {
-    return input.argNames.zipWithIndex.filter(x=>x._1.varType match {
-      case Type.T(a) => true
-      case _ => false
-    }).map(x=>x._1.varType match {
-      case Type.T(a) => (x._2, Type.T(a))
-    })
-  }
-  def templateFunctionArgs(input: FunctionInfo): List[(Int, Type.T)] = {
-    return input.args.zipWithIndex.filter(x=>x._1.varType match {
-      case Type.T(a) => true
-      case _ => false
-    }).map(x=>x._1.varType match {
-      case Type.T(a) => (x._2, Type.T(a))
-    })
-  }
-   */
+
   def traverseTypeTree(input: FunctionInfo, func: (Type) => Type): FunctionInfo = {
     FunctionInfo(input.name,
       input.prefix,
@@ -867,16 +854,7 @@ object ToAssembly {
     )
   }
   def traverseTypeTree(input: Type, func: (Type) => Type): Type = input match {
-    /*
-    case UserType(name) => interfaces.find(x=>x.name == name) match {
-      case Some(n) => traverseTypeTree(Type.Interface(n.args, n.funcs)) match {
-        case t@Type.Interface(newargs,f) =>
-          interfaces = interfaces.map(x=>if(x == n) InterfaceInfo(x.name, newargs, x.funcs) else x)
-          t
-      }
-      case _ => throw new Exception (s"no interface of name $name");
-    }
-     */
+
     case Type.Interface(name, args,f, templates) => Type.Interface(name,
       args.map(x=>InputVar(x.name, traverseTypeTree(x.varType, func))),
       f.map(x=>traverseTypeTree(x, func)),
@@ -892,21 +870,62 @@ object ToAssembly {
     input.map(x =>
       InputVar(x.name, traverseTypeTree(x.varType, func)))
   }
+
   def replaceType(input: Expr, func: (Type) => Type): Expr = input match {
     case Expr.DefVal(a, varType) => Expr.DefVal(a, traverseTypeTree(varType, func))
-    case Expr.DefValWithValue(variable, varType, value) => Expr.DefValWithValue(variable, traverseTypeTree(varType, func), value)
+    case Expr.DefValWithValue(variable, varType, value) => Expr.DefValWithValue(variable, traverseTypeTree(varType, func), replaceType(value, func))
     case Expr.Func(name, argNames, retType, body, templates) => Expr.Func(name, replaceType(argNames, func), traverseTypeTree(retType, func), replaceType(body, func).asInstanceOf[Expr.Block], templates)
     case Expr.Block(lines) => Expr.Block(lines.map(x=>replaceType(x, func)))
+    case Expr.While(condition: Expr, execute: Expr.Block) => Expr.While(replaceType(condition, func), replaceType(execute,func).asInstanceOf[Expr.Block])
+    case Expr.If(condition: Expr, ifTrue: Expr.Block, ifFalse: Expr) =>
+      Expr.If(replaceType(condition, func), replaceType(ifTrue,func).asInstanceOf[Expr.Block],replaceType(ifFalse,func).asInstanceOf[Expr.Block])
     case Expr.DefineInterface(name, props, functions, templates) =>
       Expr.DefineInterface(name, replaceType(props, func), functions.map(x=>replaceType(x, func).asInstanceOf[Expr.Func]),
         templates.map(x=>traverseTypeTree(x, func))
       )
-    case x => x
-        //case  Expr.While(condition: Expr, execute: Expr.Block) =>
-        //case Expr.If(condition: Expr, ifTrue: Expr.Block, ifFalse: Expr) =>
+    //case Expr.DefineArray(size, elemType:Type, defaultValues: List[Expr]) => Expr.DefineArray(size, traverseTypeTree(elemType, func), defaultValues)
+    //case Expr.InstantiateInterface
+    case x => {
+      val param_func: (Any => Any) = new ((Any) => Any) {
+        def apply(in: Any): Any = in match {
+          case expr: Expr => replaceType(expr, func)
+          case t: Type => traverseTypeTree(t, func)
+          case h :: t => (h +: t).map(y=>apply(y))
+          case _ => in
+        }
+      }
+      applyFunctionToUnknownCaseClass(x, param_func)
+    }
+
       //case class Convert(value: Expr, to: Type) extends Expr
       //case class Lambda(argNames: List[InputVar], retType: Type, body: Expr.Block) extends Expr
   }
+
+  def applyFunctionToUnknownCaseClass(instance: Expr, func: Any => Any): Expr = {
+    val mirror = currentMirror
+    val instanceMirror = mirror.reflect(instance)
+    val classSymbol = instanceMirror.symbol
+
+    if (!classSymbol.isClass || !classSymbol.asClass.isCaseClass) {
+      throw new IllegalArgumentException("The provided instance is not a case class.")
+    }
+
+    val classType = instanceMirror.symbol.typeSignature
+    val constructorSymbol = classType.decl(termNames.CONSTRUCTOR).asMethod
+    val constructorMirror = mirror.reflectClass(classSymbol.asClass).reflectConstructor(constructorSymbol)
+
+    // Collecting parameters from the constructor
+    val params = constructorSymbol.paramLists.flatten
+
+    val fieldValues = params.map { param =>
+      val fieldTerm = classType.decl(param.name).asTerm.accessed.asTerm
+      val fieldValue = instanceMirror.reflectField(fieldTerm).get
+      func(fieldValue)
+    }
+
+    constructorMirror(fieldValues: _*).asInstanceOf[Expr]
+  }
+
   def replaceWithMappingFunc(template_mappings: List[(Type, Type)]): Type => Type = {
     return {
       case t@Type.T(i) => {
