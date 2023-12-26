@@ -6,8 +6,7 @@ import sourcecode.Text.generate
 import scala.io.AnsiColor
 import scala.language.postfixOps
 import scala.reflect.runtime.currentMirror
-import scala.reflect.runtime.universe.{TypeTag, termNames, typeOf}
-import scala.reflect.ClassTag
+import scala.reflect.runtime.universe.termNames
 
 class Counter {
   var counter = 1;
@@ -582,24 +581,26 @@ object ToAssembly {
     functions.find(x=>x.name == name) match {
       case Some(x) => ; case None => throw new Exception(s"function of name $name undefined");
     }
-    functions.find(x=>x.name == name && argInputTypes.length==x.args.length && isTemplateFunction(x)) match {
-      case Some(info@FunctionInfo(p, prefix, argTypes, retType, _)) => {
+    if (!functions.exists(x=>x.name == name && argInputTypes == x.args.map(x=>makeUserTypesConcrete(x.varType)))) {
+      functions.find(x => x.name == name && argInputTypes.length == x.args.length && isTemplateFunction(x)) match {
+        case Some(info@FunctionInfo(p, prefix, argTypes, retType, _)) => {
 
-        if(info.templates.length != templates.length) throw new Exception(s"Wrong template count for calling function $name")
-        val template_mappings = info.templates.zip(templates)//templateFunctionArgs(info, templates)
+          if (info.templates.length != templates.length) throw new Exception(s"Wrong template count for calling function $name")
+          val template_mappings = info.templates.zip(templates) //templateFunctionArgs(info, templates)
 
-        template_mappings.groupBy(x=>x._1).filter(x=>Set(x._2).toList.length>1)
-          .foreach(x=>throw new Exception(s"Template function $name input types conflicting, received: ${x._2}"))
-        //println(template_mappings)
-        val replace_func = replaceWithMappingFunc(template_mappings)
+          template_mappings.groupBy(x => x._1).filter(x => Set(x._2).toList.length > 1)
+            .foreach(x => throw new Exception(s"Template function $name input types conflicting, received: ${x._2}"))
+          //println(template_mappings)
+          val replace_func = replaceWithMappingFunc(template_mappings)
 
-        val func_expr = templateFunctions.find(x=>x.name==name && argTypes == x.argNames).get
-        //func_expr = Expr.Func(func_expr.name,func_expr.argNames,func_expr.retType,func_expr.body,func_expr.templates)
-        templateFunctionInstances = templateFunctionInstances :+ replaceType(func_expr, replace_func).asInstanceOf[Expr.Func]
-        //TODO unsure if templates or input.templates is best
-        functions = functions :+ FunctionInfo(p, prefix, argTypes.map(x=>InputVar(x.name, traverseTypeTree(x.varType, replace_func))), traverseTypeTree(retType, replace_func), info.templates)
+          val func_expr = templateFunctions.find(x => x.name == name && argTypes == x.argNames).get
+          //func_expr = Expr.Func(func_expr.name,func_expr.argNames,func_expr.retType,func_expr.body,func_expr.templates)
+          templateFunctionInstances = templateFunctionInstances :+ replaceType(func_expr, replace_func).asInstanceOf[Expr.Func]
+          //TODO unsure if templates or input.templates is best
+          functions = functions :+ FunctionInfo(p, prefix, argTypes.map(x => InputVar(x.name, traverseTypeTree(x.varType, replace_func))), traverseTypeTree(retType, replace_func), info.templates)
+        }
+        case _ => ()
       }
-      case _ => ()
     }
 
     //functions.find(x=>x.name == name && Type.compare(argInputTypes, x.args.map(x=>makeUserTypesConcrete(x.varType)))) match {
@@ -911,7 +912,7 @@ object ToAssembly {
     }
 
     val classType = instanceMirror.symbol.typeSignature
-    val constructorSymbol = classType.decl(termNames.CONSTRUCTOR).asMethod
+    val constructorSymbol = classType.decl(termNames.CONSTRUCTOR.asInstanceOf[scala.reflect.runtime.universe.Name]).asMethod
     val constructorMirror = mirror.reflectClass(classSymbol.asClass).reflectConstructor(constructorSymbol)
 
     // Collecting parameters from the constructor
