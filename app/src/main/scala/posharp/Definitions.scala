@@ -1,6 +1,6 @@
 package posharp
 
-import ToAssembly.FunctionInfo
+import posharp.ToAssembly.FunctionInfo
 
 sealed trait Expr
 object Expr{

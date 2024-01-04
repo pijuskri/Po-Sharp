@@ -1,5 +1,6 @@
 package posharp
 
+import posharp.ToAssembly.{FunctionInfo, InterfaceInfo, EnumInfo, Variable, FileDeclaration}
 import posharp.Type.{UserType, defaultValue, shortS, toLLVM}
 import sourcecode.Text.generate
 
@@ -8,36 +9,10 @@ import scala.language.postfixOps
 import scala.reflect.runtime.currentMirror
 import scala.reflect.runtime.universe.termNames
 
-class Counter {
-  var counter = 1;
-  private var pausedCounter = 1;
-  private var counterExtra = 0;
-  private var paused = false;
-  def next(): String = {
-    val cur = counter;
-    if(!paused) counter += 1;
-    s"%l$cur";
-  }
-  def extra(): Int = {
-    counterExtra += 1;
-    counterExtra - 1;
-  }
-  def last(): String = s"%l${counter-1}";
-  def secondLast(): String = s"%l${counter-2}";
-  def reset(): Unit = {
-    counter = 1;
-  }
-  def pause(): Unit = {
-    paused = true;
-    pausedCounter = counter;
-  }
-  def unpause(): Unit = {
-    paused = false;
-    counter = pausedCounter;
-  }
-}
+class ToAssembly(currentFile: String) {
+  type Env = Map[String, Variable]
 
-object ToAssembly {
+
   var varc: Counter = new Counter();
   var ifCounter = 0;
   var subconditionCounter: Int = 0;
@@ -52,18 +27,31 @@ object ToAssembly {
   var templateInterfaces: List[Expr.DefineInterface] = List()
   var templateInterfaceInstances: List[Expr.DefineInterface] = List()
 
-  def convertMain(input: Expr, currentFile: String, otherFiles: Map[String, Expr.TopLevel]): String = {
+  //var otherFilesGenerate: Map[String, (FileDeclaration, List[Expr.Func])] = Map()
+
+  def declarationPass(input: Expr): Unit = {
+    input match {
+      case x: Expr.TopLevel => {
+        declareFunctions(x);
+        declareInterfaces(x)
+        //declareEnums(x)
+        templateInterfaces = x.interfaces.filter(x => isTemplateInterface(x.templates))
+        templateFunctions = x.functions.filter(x => isTemplateFunction(x))
+      }
+    }
+  }
+  def convertMain(input: Expr, otherFiles: Map[String, Expr.TopLevel]): String = {
     ifCounter = 0;
     subconditionCounter = 0;
-    stringLiterals = List()
-    functions = List();
-    interfaces = List();
-    enums = List()
-    lambdas = List()
-    templateFunctions = List()
-    templateFunctionInstances = List()
-    templateInterfaces = List()
-    templateInterfaceInstances = List()
+    //stringLiterals = List()
+    //functions = List();
+    //interfaces = List();
+    //enums = List()
+    //lambdas = List()
+    //templateFunctions = List()
+    //templateFunctionInstances = List()
+    //templateInterfaces = List()
+    //templateInterfaceInstances = List()
     functionScope = FunctionInfo("main", "", List(), Type.Num(), List());
 
     var converted =
@@ -99,11 +87,7 @@ object ToAssembly {
         .map(y => (y, Map()))
       //TODO template function in interfaces ignored for now
 
-      declareFunctions(x);
-      converted += declareInterfaces(x) + "\n";
-      //declareEnums(x)
-      templateInterfaces = x.interfaces.filter(x=>isTemplateInterface(x.templates))
-      templateFunctions = x.functions.filter(x=>isTemplateFunction(x))
+      converted += declareInterfaces(x, onlyLLVM = true)
       converted += exportDeclarations(currentFile) + "\n"
       converted += handleImports(x, otherFiles) + "\n"
       converted += defineFunctions(x.functions.map(y=>(y, Map())), false, false);
@@ -432,10 +416,13 @@ object ToAssembly {
   private def declareFunctions(input: Expr.TopLevel): Unit = {
     functions = input.functions.map(x=> FunctionInfo(x.name, "", x.argNames, x.retType, x.templates))
   }
-  private def declareInterfaces(input: Expr.TopLevel): String = {
-    interfaces = input.interfaces.map(x=> InterfaceInfo(x.name, x.props, x.functions.map(x=>FunctionInfo(x.name,"", x.argNames,x.retType,x.templates)), x.templates))
-    val non_generic_intf = interfaces.filter(x=> !isTemplateInterface(x))
-    functions = functions ::: non_generic_intf.flatMap(x=>addPrefixToFunctions(x.name,x.funcs))
+  private def declareInterfaces(input: Expr.TopLevel, onlyLLVM: Boolean = false): String = {
+    val interfaces_local = input.interfaces.map(x=> InterfaceInfo(x.name, x.props, x.functions.map(x=>FunctionInfo(x.name,"", x.argNames,x.retType,x.templates)), x.templates))
+    val non_generic_intf = interfaces_local.filter(x=> !isTemplateInterface(x))
+    if (!onlyLLVM) {
+      functions = functions ::: non_generic_intf.flatMap(x => addPrefixToFunctions(x.name, x.funcs))
+      interfaces = interfaces_local
+    }
     non_generic_intf.map(intf => {
       val types = intf.args.map(x=>Type.toLLVM(x.varType)).mkString(", ")
       s"%Class.${intf.name}. = type {$types}\n"
@@ -458,21 +445,35 @@ object ToAssembly {
       var ret = ""
 
       val funcsForImport = searchFileDeclarations(top, imp) match {
-        case Expr.Func(name, argnames, retType, code, templates) => {
-          functions = functions :+ FunctionInfo(name, formatFName(imp.file), argnames, retType, templates)
-          List(FunctionInfo(name, formatFName(imp.file), argnames, retType, templates))
+        case f_def@Expr.Func(name, argnames, retType, code, templates) => {
+          val info = FunctionInfo(name, formatFName(imp.file), argnames, retType, templates)
+          functions = functions :+ info
+          //TODO MAJOR issue with where generic classes will be generated. Should be in source file but currently in current.
+          if (isTemplateFunction(info)) {
+            templateFunctions = templateFunctions :+ f_def
+            List()
+          }
+          else List(FunctionInfo(name, formatFName(imp.file), argnames, retType, templates))
         }
-        case Expr.DefineInterface(name, props, i_functions, templates) => {
-          throw new NotImplementedError("")
+        case intf_def@Expr.DefineInterface(name, props, i_functions, templates) => {
           val intf = InterfaceInfo(name, props, i_functions.map(x=>FunctionInfo(x.name,formatFName(imp.file), x.argNames,x.retType,x.templates)), templates)
+
+          //templateFunctions = x.functions.filter(x => isTemplateFunction(x))
+          //TODO MAJOR issue with where generic classes will be generated. Should be in source file but currently in current.
+          if(isTemplateInterface(intf)) templateInterfaces = templateInterfaces :+ intf_def
+
           interfaces = interfaces :+ intf
 
-          val types = intf.args.map(x=>Type.toLLVM(x.varType)).mkString(", ")
-          ret += s"%Class.${intf.name} = type {$types}\n"
+          if(!isTemplateInterface(intf)) {
+            val types = intf.args.map(x => Type.toLLVM(x.varType)).mkString(", ")
+            val intf_llvm = toLLVM(intf).dropRight(1)
+            //ret += s"%Class.${intf.name} = type {$types}\n"
+            ret += s"$intf_llvm = type {$types}\n"
 
-          val funcs = addPrefixToFunctions(intf.name,intf.funcs)
-          functions = functions ::: funcs
-          funcs.map(x=>FunctionInfo(x.name, formatFName(imp.file), x.args, x.retType,x.templates))
+            val funcs = addPrefixToFunctions(intf.name, intf.funcs)
+            functions = functions ::: funcs
+            funcs.map(x => FunctionInfo(x.name, formatFName(imp.file), x.args, x.retType, x.templates))
+          } else List()
         }
       }
       ret + funcsForImport.map(info=>{
@@ -994,10 +995,46 @@ object ToAssembly {
     }
   }
 
-  type Env = Map[String, Variable]
+}
+
+object ToAssembly extends ToAssembly("") {
   case class FunctionInfo(name: String, prefix: String, args: List[InputVar], retType: Type, templates: List[Type])
+
   case class InterfaceInfo(name: String, args: List[InputVar], funcs: List[FunctionInfo], templates: List[Type])
+
   case class EnumInfo(name: String, el: List[String])
+
   case class Variable(loc: String, varType: Type)
+
+  case class FileDeclaration(functions: List[FunctionInfo], interfaces: List[InterfaceInfo])
+}
+
+class Counter {
+  var counter = 1;
+  private var pausedCounter = 1;
+  private var counterExtra = 0;
+  private var paused = false;
+  def next(): String = {
+    val cur = counter;
+    if(!paused) counter += 1;
+    s"%l$cur";
+  }
+  def extra(): Int = {
+    counterExtra += 1;
+    counterExtra - 1;
+  }
+  def last(): String = s"%l${counter-1}";
+  def secondLast(): String = s"%l${counter-2}";
+  def reset(): Unit = {
+    counter = 1;
+  }
+  def pause(): Unit = {
+    paused = true;
+    pausedCounter = counter;
+  }
+  def unpause(): Unit = {
+    paused = false;
+    counter = pausedCounter;
+  }
 }
 
