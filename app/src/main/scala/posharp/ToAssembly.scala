@@ -44,7 +44,7 @@ class ToAssembly(currentFile: String) {
   def convertMain(input: Expr, otherFiles: Map[String, Expr.TopLevel]): String = {
     ifCounter = 0;
     subconditionCounter = 0;
-    functionScope = FunctionInfo("main", "", List(), Type.Num(), List());
+    functionScope = FunctionInfo(file_prefix+"_main", "", List(), Type.Num(), List());
 
     var converted =
       """
@@ -432,13 +432,23 @@ class ToAssembly(currentFile: String) {
   }
   private def handleImports(input: Expr.TopLevel, otherFiles: Map[String, Expr.TopLevel]): String = {
     input.imports.map(user_imp=>{
-      val imp = Expr.Import(formatFName(user_imp.file)+"_"+user_imp.toImport, user_imp.file)
+      val module_import: Boolean = user_imp.toImport == "__module__"
+      val imp = if (!module_import)
+        Expr.Import(formatFName(user_imp.file)+"_"+user_imp.toImport, user_imp.file)
+      else user_imp
+
       def change_file(name: String) = name.replace(formatFName(imp.file)+"_", file_prefix+"_")
       if (!otherFiles.contains(imp.file)) throw new Exception(s"file \"${imp.file}\" could not be imported");
       val top = otherFiles(imp.file)
       var ret = ""
+      val import_list: List[Expr] = if(module_import) {
+        val cur_top = otherFiles(imp.file)
+        cur_top.interfaces ::: cur_top.functions
+      } else {
+        List(searchFileDeclarations(top, imp))
+      }
 
-      val funcsForImport = searchFileDeclarations(top, imp) match {
+      val funcsForImport = import_list.flatMap{
         case f_def@Expr.Func(name, argnames, retType, code, templates) => {
           val info = FunctionInfo(name, formatFName(imp.file), argnames, retType, templates)
           functions = functions :+ info
@@ -450,17 +460,17 @@ class ToAssembly(currentFile: String) {
           else List(FunctionInfo(name, formatFName(imp.file), argnames, retType, templates))
         }
         case intf_def@Expr.DefineInterface(name, props, i_functions, templates) => {
-          val intf = InterfaceInfo(name, props, i_functions.map(x=>FunctionInfo(x.name,formatFName(imp.file), x.argNames,x.retType,x.templates)), templates)
+          val intf = InterfaceInfo(name, props, i_functions.map(x => FunctionInfo(x.name, formatFName(imp.file), x.argNames, x.retType, x.templates)), templates)
 
           //templateFunctions = x.functions.filter(x => isTemplateFunction(x))
           //TODO MAJOR issue with where generic classes will be generated. Should be in source file but currently in current.
-          if(isTemplateInterface(intf)) templateInterfaces = templateInterfaces :+ intf_def
+          if (isTemplateInterface(intf)) templateInterfaces = templateInterfaces :+ intf_def
 
           interfaces = interfaces :+ intf
           val same_namespace_intf = InterfaceInfo(change_file(name), props, intf.funcs, templates)
-          interfaces = interfaces :+ same_namespace_intf
+          //interfaces = interfaces :+ same_namespace_intf
 
-          if(!isTemplateInterface(intf)) {
+          if (!isTemplateInterface(intf)) {
             val types = intf.args.map(x => Type.toLLVM(x.varType)).mkString(", ")
             val intf_llvm = toLLVM(intf).dropRight(1)
             val same_namespace_intf_llvm = toLLVM(same_namespace_intf).dropRight(1)
@@ -475,7 +485,7 @@ class ToAssembly(currentFile: String) {
         }
       }
       funcsForImport.foreach(info=>{
-        functions = functions :+ FunctionInfo(change_file(info.name), info.prefix, info.args, info.retType, info.templates)
+        //functions = functions :+ FunctionInfo(change_file(info.name), info.prefix, info.args, info.retType, info.templates)
       })
       ret + funcsForImport.map(info=>{
         val importName: String = fNameSignature(info)
@@ -483,8 +493,8 @@ class ToAssembly(currentFile: String) {
         val args = info.args.map(x=>s"${Type.toLLVM(x.varType)}").mkString(", ")
         //s"declare ${Type.toLLVM(info.retType)} @${importName}($args)\n" +
         //  s"@$name = ifunc ${toLLVM(info)}, ${toLLVM(info)}* @${importName}\n"
-        s"declare ${Type.toLLVM(info.retType)} @${importName}($args) \"${formatFName(imp.file)}\"\n"+
-          s"@${name} = alias ${toLLVM(info)}, ${toLLVM(info)}* @${importName}\n"
+        s"declare ${Type.toLLVM(info.retType)} @${importName}($args) \"${formatFName(imp.file)}\"\n"
+          //s"@${name} = alias ${toLLVM(info)}, ${toLLVM(info)}* @${importName}\n"
 
       }).mkString
     }).mkString
@@ -548,8 +558,11 @@ class ToAssembly(currentFile: String) {
 
         val fname = fNameSignature(info)
         val args = info.args.map(x => s"${Type.toLLVM(x.varType)} %Input.${x.name}").mkString(", ")
-        val addPrivate = if (info.name == "main") "" else "private ";
-        var ret = s"define $addPrivate${Type.toLLVM(info.retType)} @${fname}($args) #0 {\n"
+        val addPrivate = ""//if (info.name == file_prefix+"_main") "" else "private ";
+        val main_alias = s"@main = external alias i32 (), i32 ()* @${file_prefix}_main\n"
+        var ret = ""
+        if (info.name == file_prefix+"_main") ret += main_alias
+          ret += s"define $addPrivate${Type.toLLVM(info.retType)} @${fname}($args) #0 {\n"
         val newEnv = upperScope ++ info.args.map(x => (x.name, Variable(s"%${x.name}", x.varType))).toMap //Variable(s"%${x.name}.${varc.extra()}"
         var body = info.args.map(x =>
           s"%${x.name} = alloca ${Type.toLLVM(x.varType)}, align 64\n" + //, align ${arraySizeFromType(x.varType)}
@@ -560,7 +573,7 @@ class ToAssembly(currentFile: String) {
         body += convert(function.body, newEnv)._1
 
         if (info.retType == Type.Undefined()) body += "ret void\n"
-        if (info.name == "main") body += "ret i32 0\n"
+        if (info.name == file_prefix+"_main") body += "ret i32 0\n"
         varc.reset()
 
         ret += body.split("\n").map(x => "\t" + x).mkString("\n")

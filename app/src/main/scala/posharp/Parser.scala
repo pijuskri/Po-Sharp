@@ -33,7 +33,9 @@ object Parser {
     }
   }
 
-  def imports[_: P]: P[Expr.Import] = P("import " ~/ ident ~ "from" ~ fileName ~ ";").map(x=> Expr.Import(x._1.name, x._2.s))
+  def imports[_: P]: P[Expr.Import] = P(importPartial | importModule)
+  def importPartial[_: P]: P[Expr.Import] = P("import " ~ ident ~ "from" ~/ fileName ~ ";").map(x=> Expr.Import(x._1.name, x._2.s))
+  def importModule[_: P]: P[Expr.Import] = P("import " ~/ fileName ~ ";").map(x=> Expr.Import("__module__", x.s))
 
   /*
   def interfaceDef[_: P]: P[Expr.DefineInterface] = P("interface " ~ ident ~/ "{" ~ (ident ~ typeDef).rep(sep = ",") ~ "}").map(props=>
@@ -72,7 +74,7 @@ object Parser {
     case (ident, None) => Expr.DefVal(ident.name, Type.Undefined())
   }
 
-  def accessVar[_: P]: P[Expr] = P(mod_ident ~ ((".".! ~ ident ~ "(".! ~ prefixExpr.rep(sep = ",") ~ ")") | (".".! ~ ident) | ("[".! ~/ prefixExpr ~ "]")).rep).map { case (start, acs) =>
+  def accessVar[_: P]: P[Expr] = P(ident ~ ((".".! ~ ident ~ "(".! ~ prefixExpr.rep(sep = ",") ~ ")") | (".".! ~ ident) | ("[".! ~/ prefixExpr ~ "]")).rep).map { case (start, acs) =>
     acs.foldLeft(start: Expr)((acc, v) => v match {
       case (".", Expr.Ident(ident)) => GetProperty(acc, ident)
       case ("[", index: Expr) => Expr.GetArray(acc, index)
@@ -226,10 +228,19 @@ object Parser {
       Expr.Ident(input)
     })
 
-  def mod_ident[_: P]: P[Expr.Ident] = P(CharIn("a-zA-Z_") ~~ CharsWhileIn("a-zA-Z0-9_", 0)).!
-    .filter(x => !reservedKeywords.contains(x))
+  def mod_ident[_: P]: P[Expr.Ident] = P(mod_ident_raw)
     .map((input) => {
-      Expr.Ident(file_name + "_" + input)
+      val modules = input._1.toList.mkString("_")
+      val prefix = if (modules.nonEmpty) modules else file_name
+      Expr.Ident(prefix + "_" + input._2)
+    })
+  def mod_ident_raw[_: P] = P((ident.! ~ "::").rep() ~ ident.!)
+    .filter(x => !x._1.exists(y => reservedKeywords.contains(y)) && !reservedKeywords.contains(x._2))
+  def mod_ident_no_default[_: P]: P[Expr.Ident] = P(mod_ident_raw)
+    .map((input) => {
+      val modules = input._1.toList.mkString("_") + "_"
+      val prefix = if (modules.length > 1) modules else ""
+      Expr.Ident(prefix + input._2)
     })
 
   def number[_: P]: P[Expr.Num] = P("-".!.? ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.Num(Integer.parseInt(x)))
