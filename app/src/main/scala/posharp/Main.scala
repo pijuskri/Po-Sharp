@@ -17,13 +17,15 @@ object Main extends App {
     val sourceDirPath = Paths.get(sourceDir)
     val declarations: Map[String, (ToAssembly, Expr.TopLevel)] = files.map(file => {
       val toCompile = readFile(file)
-      val parsed = Parser.parseInput(toCompile);
+      var relative_name = sourceDirPath.relativize(file.toPath).toFile.getPath.split(Constants.FileExtension)(0)
+      relative_name = relative_name.replace("\\", "/")
+
+      val parsed = Parser.parseInput(toCompile, relative_name.replace("/", "_"));
       val top = parsed match {
         case x: Expr.TopLevel => x
         case _ => throw new Exception("unexpected type in top level")
       }
-      var relative_name = sourceDirPath.relativize(file.toPath).toFile.getPath.split(Constants.FileExtension)(0)
-      relative_name = relative_name.replace("\\", "/")
+
       (relative_name -> (new ToAssembly(relative_name), top))
     }).toMap
     //declaration step

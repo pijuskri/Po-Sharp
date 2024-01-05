@@ -26,6 +26,7 @@ class ToAssembly(currentFile: String) {
   var functionScope: FunctionInfo = FunctionInfo("main", "", List(), Type.Num(), List());
   var templateInterfaces: List[Expr.DefineInterface] = List()
   var templateInterfaceInstances: List[Expr.DefineInterface] = List()
+  val file_prefix: String = formatFName(currentFile)
 
   //var otherFilesGenerate: Map[String, (FileDeclaration, List[Expr.Func])] = Map()
 
@@ -43,15 +44,6 @@ class ToAssembly(currentFile: String) {
   def convertMain(input: Expr, otherFiles: Map[String, Expr.TopLevel]): String = {
     ifCounter = 0;
     subconditionCounter = 0;
-    //stringLiterals = List()
-    //functions = List();
-    //interfaces = List();
-    //enums = List()
-    //lambdas = List()
-    //templateFunctions = List()
-    //templateFunctionInstances = List()
-    //templateInterfaces = List()
-    //templateInterfaceInstances = List()
     functionScope = FunctionInfo("main", "", List(), Type.Num(), List());
 
     var converted =
@@ -439,7 +431,9 @@ class ToAssembly(currentFile: String) {
     enums = input.enums.map(x=>EnumInfo(x.name,x.props))
   }
   private def handleImports(input: Expr.TopLevel, otherFiles: Map[String, Expr.TopLevel]): String = {
-    input.imports.map(imp=>{
+    input.imports.map(user_imp=>{
+      val imp = Expr.Import(formatFName(user_imp.file)+"_"+user_imp.toImport, user_imp.file)
+      def change_file(name: String) = name.replace(formatFName(imp.file)+"_", file_prefix+"_")
       if (!otherFiles.contains(imp.file)) throw new Exception(s"file \"${imp.file}\" could not be imported");
       val top = otherFiles(imp.file)
       var ret = ""
@@ -463,12 +457,16 @@ class ToAssembly(currentFile: String) {
           if(isTemplateInterface(intf)) templateInterfaces = templateInterfaces :+ intf_def
 
           interfaces = interfaces :+ intf
+          val same_namespace_intf = InterfaceInfo(change_file(name), props, intf.funcs, templates)
+          interfaces = interfaces :+ same_namespace_intf
 
           if(!isTemplateInterface(intf)) {
             val types = intf.args.map(x => Type.toLLVM(x.varType)).mkString(", ")
             val intf_llvm = toLLVM(intf).dropRight(1)
+            val same_namespace_intf_llvm = toLLVM(same_namespace_intf).dropRight(1)
             //ret += s"%Class.${intf.name} = type {$types}\n"
             ret += s"$intf_llvm = type {$types}\n"
+            ret += s"$same_namespace_intf_llvm = type {$types}\n"
 
             val funcs = addPrefixToFunctions(intf.name, intf.funcs)
             functions = functions ::: funcs
@@ -476,21 +474,19 @@ class ToAssembly(currentFile: String) {
           } else List()
         }
       }
+      funcsForImport.foreach(info=>{
+        functions = functions :+ FunctionInfo(change_file(info.name), info.prefix, info.args, info.retType, info.templates)
+      })
       ret + funcsForImport.map(info=>{
-        val name = fNameSignature(info)
-        val importName = formatFName(imp.file) + "_" + name
+        val importName: String = fNameSignature(info)
+        val name = change_file(importName) //formatFName(imp.file) + "_" +
         val args = info.args.map(x=>s"${Type.toLLVM(x.varType)}").mkString(", ")
         //s"declare ${Type.toLLVM(info.retType)} @${importName}($args)\n" +
         //  s"@$name = ifunc ${toLLVM(info)}, ${toLLVM(info)}* @${importName}\n"
-        s"declare ${Type.toLLVM(info.retType)} @${importName}($args) \"${formatFName(imp.file)}\"\n"
-      }).mkString
-      /*
-      intf.funcs.map(x=>{
-            val label = imp.file + "_" + x.name
-            s"extern ${label}\n" + s"${x.name}:\njmp ${label}\n"
-          }).mkString
-       */
+        s"declare ${Type.toLLVM(info.retType)} @${importName}($args) \"${formatFName(imp.file)}\"\n"+
+          s"@${name} = alias ${toLLVM(info)}, ${toLLVM(info)}* @${importName}\n"
 
+      }).mkString
     }).mkString
   }
   private def searchFileDeclarations(top: Expr.TopLevel, imp: Expr.Import): Expr = {
@@ -605,12 +601,12 @@ class ToAssembly(currentFile: String) {
     }
 
     //functions.find(x=>x.name == name && Type.compare(argInputTypes, x.args.map(x=>makeUserTypesConcrete(x.varType)))) match {
-    //println(Util.prettyPrint(functions))
+    println(Util.prettyPrint(functions))
 
     functions.find(x=>x.name == name && argInputTypes == x.args.map(x=>makeUserTypesConcrete(x.varType))) match {
       case Some(info@FunctionInfo(p, prefix, argTypes, retType, templates)) => {
         var tName = fNameSignature(info)
-        if(prefix != "") tName = prefix+"_"+tName;
+        //if(prefix != "") tName = prefix+"_"+tName;
         val argTypeString = argTypes.map(x=>Type.toLLVM(x.varType)).mkString(", ")
         if (retType != Type.Undefined()) ret += s"${varc.next()} = ";
         ret += s"call ${Type.toLLVM(retType)} ($argTypeString) @$tName($argsString)\n"
