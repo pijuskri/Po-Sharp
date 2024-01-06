@@ -32,6 +32,15 @@ object Parser {
       Expr.Func(name.name, args, ret, body, templates.getOrElse(List()).asInstanceOf[List[Type.T]])
     }
   }
+  def function_intf[_: P]: P[Expr.Func] = P("def " ~/ ident ~ templateTypes.? ~ "(" ~/ functionArgs ~ ")" ~/ typeDef.? ~ block).map {
+    case (name, templates, args, retType, body) => {
+      val ret = retType match {
+        case Some(typ) => typ
+        case None => Type.Undefined()
+      }
+      Expr.Func(name.name, args, ret, body, templates.getOrElse(List()).asInstanceOf[List[Type.T]])
+    }
+  }
 
   def imports[_: P]: P[Expr.Import] = P(importPartial | importModule)
   def importPartial[_: P]: P[Expr.Import] = P("import " ~ ident ~ "from" ~/ fileName ~ ";").map(x=> Expr.Import(x._1.name, x._2.s))
@@ -42,7 +51,7 @@ object Parser {
     Expr.DefineInterface(props._1.name, props._2.toList.map(x=>InputVar(x._1.name, x._2)))
   )
    */
-  def interfaceDef[_: P]: P[Expr.DefineInterface] = P("object " ~/ mod_ident ~ templateTypes.? ~ "{" ~/ objValue ~ function.rep ~ "}").map(props =>
+  def interfaceDef[_: P]: P[Expr.DefineInterface] = P("object " ~/ mod_ident ~ templateTypes.? ~ "{" ~/ objValue ~ function_intf.rep ~ "}").map(props =>
     Expr.DefineInterface(props._1.name, props._3.map(x => InputVar(x.name, x.varType)), props._4.toList, props._2.getOrElse(List()).asInstanceOf[List[Type.T]]))
 
   def objValue[_: P]: P[List[ObjVal]] = P(ident ~ typeDef ~ ("=" ~ prefixExpr).? ~ ";").rep.map(x => x.map {
@@ -74,12 +83,17 @@ object Parser {
     case (ident, None) => Expr.DefVal(ident.name, Type.Undefined())
   }
 
-  def accessVar[_: P]: P[Expr] = P(ident ~ ((".".! ~ ident ~ "(".! ~ prefixExpr.rep(sep = ",") ~ ")") | (".".! ~ ident) | ("[".! ~/ prefixExpr ~ "]")).rep).map { case (start, acs) =>
-    acs.foldLeft(start: Expr)((acc, v) => v match {
+  def accessVar[_: P]: P[Expr] = P(mod_ident_raw ~ ((".".! ~ ident ~ "(".! ~ prefixExpr.rep(sep = ",") ~ ")") | (".".! ~ ident) | ("[".! ~/ prefixExpr ~ "]")).rep)
+    .map { case (prefix, start, acs) =>
+    acs.foldLeft(Expr.Ident(start): Expr)((acc, v) => v match {
       case (".", Expr.Ident(ident)) => GetProperty(acc, ident)
       case ("[", index: Expr) => Expr.GetArray(acc, index)
       //TODO template functions not handled
-      case (".", Expr.Ident(ident), "(", args: List[Expr]) => Expr.CallObjFunc(acc, Expr.CallF(ident, args, List())) //throw new NotImplementedException("")
+      case (".", Expr.Ident(ident), "(", args: List[Expr]) => {
+        //val callf_prefix = if(prefix.nonEmpty) prefix else file_name
+        //callf_prefix+"_"+
+        Expr.CallObjFunc(acc, Expr.CallF(ident, args, List()))
+      }//throw new NotImplementedException("")
       case x => throw new ParseException(s"bad var access: $x");
     })
   }
@@ -230,15 +244,16 @@ object Parser {
 
   def mod_ident[_: P]: P[Expr.Ident] = P(mod_ident_raw)
     .map((input) => {
-      val modules = input._1.toList.mkString("_")
+      val modules = input._1
       val prefix = if (modules.nonEmpty) modules else file_name
       Expr.Ident(prefix + "_" + input._2)
     })
-  def mod_ident_raw[_: P] = P((ident.! ~ "::").rep() ~ ident.!)
+  def mod_ident_raw[_: P]: P[(String, String)] = P((ident.! ~ "::").rep() ~ ident.!)
     .filter(x => !x._1.exists(y => reservedKeywords.contains(y)) && !reservedKeywords.contains(x._2))
+    .map(x=> (x._1.toList.mkString("_"),x._2))
   def mod_ident_no_default[_: P]: P[Expr.Ident] = P(mod_ident_raw)
     .map((input) => {
-      val modules = input._1.toList.mkString("_") + "_"
+      val modules = input._1 + "_"
       val prefix = if (modules.length > 1) modules else ""
       Expr.Ident(prefix + input._2)
     })

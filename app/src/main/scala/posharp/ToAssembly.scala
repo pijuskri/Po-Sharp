@@ -235,8 +235,9 @@ class ToAssembly(currentFile: String) {
             val alocLoc = varc.last();
 
             val valuesCompiled = values.map(x => convertLoc(x, env)).map(x => Expr.Compiled(x._1, x._2, x._3))
-            intf.funcs.find(x => x.name == name && x.args == values)
-            val func_code = interpFunction(name + "_" + name, Expr.Compiled(aloc, UserType(name, templates), alocLoc) +: valuesCompiled, List(), env)._1
+            //intf.funcs.find(x => x.name == name && x.args == values)
+            intf.funcs.find(x => x.name == "Constructor" && x.args == values)
+            val func_code = interpFunction(name + "_" + "Constructor", Expr.Compiled(aloc, UserType(name, templates), alocLoc) +: valuesCompiled, List(), env)._1
             (func_code, Type.Interface(name, intf.args, intf.funcs, intf.templates))
           }
           case None => throw new Exception(s"no interface with name \"$name\" defined")
@@ -587,7 +588,6 @@ class ToAssembly(currentFile: String) {
     val argInputTypes = argRet.map(x => makeUserTypesConcrete(x._2))
     var ret = argRet.map(x=>x._1).mkString
     val argsString = argRet.map(x=>s"${Type.toLLVM(x._2)} ${x._3}").mkString(", ")
-
     functions.find(x=>x.name == name) match {
       case Some(x) => ; case None => throw new Exception(s"function of name $name undefined");
     }
@@ -614,7 +614,7 @@ class ToAssembly(currentFile: String) {
     }
 
     //functions.find(x=>x.name == name && Type.compare(argInputTypes, x.args.map(x=>makeUserTypesConcrete(x.varType)))) match {
-    println(Util.prettyPrint(functions))
+    //println(Util.prettyPrint(functions))
 
     functions.find(x=>x.name == name && argInputTypes == x.args.map(x=>makeUserTypesConcrete(x.varType))) match {
       case Some(info@FunctionInfo(p, prefix, argTypes, retType, templates)) => {

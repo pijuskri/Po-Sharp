@@ -21,6 +21,7 @@ object Main extends App {
       relative_name = relative_name.replace("\\", "/")
 
       val parsed = Parser.parseInput(toCompile, relative_name.replace("/", "_"));
+      //println(Util.prettyPrint(parsed))
       val top = parsed match {
         case x: Expr.TopLevel => x
         case _ => throw new Exception("unexpected type in top level")
