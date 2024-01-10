@@ -15,32 +15,43 @@ object Main extends App {
     }
     val files = recursiveListFiles(new File(sourceDir), "ignore").toList.filter(x => x.getName.contains(Constants.FileExtension))
     val sourceDirPath = Paths.get(sourceDir)
-    val declarations: Map[String, Expr.TopLevel] = files.map(file => {
+    val declarations: Map[String, (ToAssembly, Expr.TopLevel)] = files.map(file => {
       val toCompile = readFile(file)
-      val parsed = Parser.parseInput(toCompile);
+      var relative_name = sourceDirPath.relativize(file.toPath).toFile.getPath.split(Constants.FileExtension)(0)
+      relative_name = relative_name.replace("\\", "/")
+
+      val parsed = Parser.parseInput(toCompile, relative_name.replace("/", "_"));
+      //println(Util.prettyPrint(parsed))
       val top = parsed match {
         case x: Expr.TopLevel => x
         case _ => throw new Exception("unexpected type in top level")
       }
-      var relative_name = sourceDirPath.relativize(file.toPath).toFile.getPath.split(Constants.FileExtension)(0)
-      relative_name = relative_name.replace("\\", "/")
-      (relative_name -> top)
+
+      (relative_name -> (new ToAssembly(relative_name), top))
     }).toMap
+    //declaration step
+    declarations.foreach(x => {
+      val code = x._2._2
+      val converter = x._2._1
+      converter.declarationPass(code)
+    })
     declarations.foreach(x => {
       val file = x._1
-      val code = x._2
+      val code = x._2._2
+      val converter = x._2._1
       var asm = "";
 
       try {
-        asm = ToAssembly.convertMain(code, file, declarations.filter(x => x._1 != file));
+        asm = converter.convertMain(code, declarations.map(x=>x._1->x._2._2).filter(x => x._1 != file));
         //asm += StringCode.stringCode;
       }
       catch {
         case x: Exception => {
-          println(AnsiColor.RED + s"Compilation exception in \"$file\": ${x.getMessage}" + AnsiColor.RESET);
+          println(AnsiColor.RED + s"Compilation exception in \"$file\": ${x.getMessage} ${x.getStackTrace.mkString("\n")}" + AnsiColor.RESET);
           sys.exit(1);
         }
       }
+
       println("")
       writeCompiled(asm, "compiled/", file)
     })

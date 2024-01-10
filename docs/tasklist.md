@@ -5,12 +5,14 @@
 ## Bugs
 * ~~functions have limited checking before llvm catches it (especially multiple constructors)~~
 * remove l prefix from register names
-
+* call same template function twice
+* print is a reserved keyword
 ## To do
 
 
-
+* all imported types should be nameless (i.e. not usertype)
 * add copy command to arrays(and maybe structs)
+* operator overloading/type alias ith 2 step parsing (maybe use if in parser to parse once with less dept hand then more)
 * rework file imports with explicit export command
 * add more object intrinsics(equal)
 * file name in error messages

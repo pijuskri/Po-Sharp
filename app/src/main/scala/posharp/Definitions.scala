@@ -1,6 +1,6 @@
 package posharp
 
-import ToAssembly.FunctionInfo
+import posharp.ToAssembly.FunctionInfo
 
 sealed trait Expr
 object Expr{
@@ -40,13 +40,14 @@ object Expr{
   case class ArraySize(array: Expr) extends Expr
 
   //case class StackVar(offset: Int) extends Expr
-  case class Func(name: String, argNames: List[InputVar], retType: Type, body: Expr.Block) extends Expr
+  case class Func(name: String, argNames: List[InputVar], retType: Type, body: Expr.Block, templates: List[Type.T]) extends Expr
   case class Lambda(argNames: List[InputVar], retType: Type, body: Expr.Block) extends Expr
-  case class CallF(name: String, args: List[Expr]) extends Expr
+  case class CallF(name: String, args: List[Expr], templates: List[Type]) extends Expr
   case class Return(value: Option[Expr]) extends Expr
 
-  case class DefineInterface(name: String, props: List[InputVar], functions: List[Func]) extends Expr
-  case class InstantiateInterface(intf: String, args: List[Expr]) extends Expr
+  //currently code needs templates to be generic type. idk how to do it while enforcing template type
+  case class DefineInterface(name: String, props: List[InputVar], functions: List[Func], templates: List[Type]) extends Expr
+  case class InstantiateInterface(intf: String, args: List[Expr], templates: List[Type]) extends Expr
   case class GetProperty(obj: Expr, prop: String) extends Expr
   case class CallObjFunc(obj: Expr, func: CallF) extends Expr
   case class SetInterfaceProp(intf: Expr, prop: String, value: Expr) extends Expr
@@ -83,15 +84,14 @@ object Type {
   case class Array(elemType: Type) extends Type
   case class Bool() extends Type
   case class Str() extends Type
-  //case class Interface(properties: List[InputVar]) extends Type
-  case class Interface(name: String, properties: List[InputVar], functions: List[FunctionInfo]) extends Type
+  case class Interface(name: String, properties: List[InputVar], functions: List[FunctionInfo], templates: List[Type]) extends Type
   case class StaticInterface(properties: List[InputVar], functions: List[FunctionInfo]) extends Type
   case class Function(args: List[Type], retType: Type) extends Type
-  case class T1() extends Type
+  case class T(num: Int) extends Type
   case class Enum(el: List[String]) extends Type
 
   //to be converted when parsing
-  case class UserType(name: String) extends Type
+  case class UserType(name: String, templates: List[Type]) extends Type
 
   def shortS(value: Type): String = value match {
     case Num() => "i";
@@ -100,17 +100,17 @@ object Type {
     case Bool() => "b"
     case Array(inner) => "arr_"+shortS(inner)+"_"
     //case Interface(inner) => "itf_"+inner.map(x=>shortS(x.varType))+"_"
-    case Interface(_, inner, innerf) => "itf_"+inner.map(x=>shortS(x.varType)).mkString+"_"+innerf.map(x=>x.name)+"_"
+    case Interface(_, inner, innerf, templates) => "itf_"+inner.map(x=>shortS(x.varType)).mkString+"_"+innerf.map(x=>x.name)+"_"+ templates.map(x=>shortS(x)).mkString
     case Function(args, retType) => "func_"+args.map(x=>shortS(x)).mkString+"_"+shortS(retType)
-    case UserType(name) => name
-    case T1() => "T1"
+    case UserType(name, templates) => name + templates.map(x=>shortS(x)).mkString
+    case T(a) => s"T$a"
   }
   def compare(val1: Type, val2: Type): Boolean = (val1, val2) match {
     case (a,b) if a == b => true
-    case (T1(), _) => true
-    case (_, T1()) => true
-    case (Array(T1()), _) => true
-    case (_, Array(T1())) => true
+    case (T(_), _) => true
+    case (_, T(_)) => true
+    case (Array(T(_)), _) => true
+    case (_, Array(T(_))) => true
     case _ => false
   }
   def compare(value: (Type, Type)): Boolean = compare(value._1,value._2)
@@ -129,9 +129,9 @@ object Type {
     case Array(inner) => s"%Type.array.${toLLVM(inner)}*"
     case Undefined() => "void"
     case Str() => "i8*"
-    //should be avoided, as usertype could be not a class
-    case UserType(name) => s"%Class.$name*"
-    case Interface(name, _, _) => s"%Class.$name*"
+    //presume that usertype is a class. Might have aliases in the future
+    case UserType(name, templates) => s"%Class.$name.${templates.map(x=>toLLVM(x)).mkString}*"
+    case Interface(name, _, _, templates) => s"%Class.$name.${templates.map(x=>toLLVM(x)).mkString}*"
     /*
     case Interface(vars, funcs) => {
       val argS = vars.map(x=>toLLVM(x.varType)).mkString(", ")

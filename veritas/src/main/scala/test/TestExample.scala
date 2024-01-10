@@ -61,6 +61,43 @@ class TestExample {
     "{def a; a = 5; print(a);}"
       .ShouldThrow(new ParseException(""))
 
+  def runTestGenericFunction1(): (Boolean, String) =
+    """def add[T1](a: T1, b: T1): T1 {
+      |    return (a+b);
+      |}
+      |
+      |def main(): int {
+      |    val b = add[int](2,3);
+      |    val a = add[float](2.0,3.0);
+      |    print(b);
+      |}""".stripMargin
+      .ShouldBe("5")
+      .Run()
+
+  def runTestGenericInterface1(): (Boolean, String) =
+    """object Test[T1] {
+      |    toPrint: T1;
+      |    def Test(self: Test[T1], toPrint: T1): Test[T1] {
+      |        self.toPrint = toPrint;
+      |        return self;
+      |    }
+      |    def __print__(self: Test[T1]) {
+      |        print(self.toPrint);
+      |        print("\n");
+      |    }
+      |}
+      |
+      |def main(): int {
+      |    val c = new Test[int](10);
+      |    val d = new Test[float](10.5);
+      |    print(d);
+      |    print("\n");
+      |    print(c);
+      |}""".stripMargin.stripMargin
+      .ShouldBe("10")
+      .Run()
+
+
   def runTestBig(): (Boolean, String) = {
     """
       object Dynamic {
@@ -176,6 +213,121 @@ class TestExample {
                 val b = new Dynamic(array('d', 'e', 'f'));
                 print(a+b);
         }
+        """
+      .ShouldBe("abcdef")
+      .Run()
+  }
+
+  def runTestGenericInterfaceBig1(): (Boolean, String) = {
+    """
+object Dynamic[T1] {
+        size: int;
+        allocated: int;
+        arr: array[T1];
+
+        def Dynamic(self: Dynamic[T1]): Dynamic[T1] {
+            self.arr = array[T1][8];
+            self.allocated = 8;
+            self.size = 0;
+            return self;
+        }
+        def Dynamic(self: Dynamic[T1], arr: array[T1]): Dynamic[T1] {
+            self.Dynamic();
+            self.push(arr);
+            return self;
+        }
+
+        def expand(self: Dynamic[T1], req: int) {
+        val total = (req + self.size);
+
+        if(total >= self.allocated) {
+          val newsize = self.allocated;
+          while(newsize < (total+1)) {
+            newsize = (newsize * 2);
+          };
+          val old = self.arr;
+          val narr = array[T1][newsize];
+          for(val i = 0; i < self.size; i+= 1;) {
+            narr[i] = old[i];
+          };
+          self.arr = narr;
+          free(old);
+          self.allocated = newsize;
+          self.size = total;
+        } else {
+                self.size += req;
+        };
+        }
+        def push(self: Dynamic[T1], value: T1) {
+            self.expand(1);
+            self.arr[(self.size-1)] = value;
+        }
+        def push(self: Dynamic[T1], value: array[T1]) {
+            val oldSize = self.size;
+            self.expand(value.size);
+
+            for(val i = 0; i < value.size; i+= 1;) {
+                self.arr[(i + oldSize)] = value[i];
+            };
+        }
+
+      def push(self: Dynamic[T1], value: Dynamic[T1]) {
+           val oldSize = self.size;
+           self.expand(value.size);
+
+           for(val i = 0; i < value.size; i+= 1;) {
+               self.arr[(i + oldSize)] = value.arr[i];
+           };
+        }
+
+        def concat(self: Dynamic[T1], other: Dynamic[T1]): Dynamic[T1] {
+            val ret = self.copy();
+            ret.push(other);
+            return ret;
+        }
+        //filter
+        def get(self: Dynamic[T1], index: int): T1 {
+            if(index >= self.size) {
+                throw exception("index out of bounds");
+            };
+            return self.arr[index];
+        }
+        def print_arr(self: Dynamic[T1]) {
+            for(val i = 0; i< self.size; i+=1;) {
+                print(self.arr[i]);
+                //print(" ");
+            };
+            print("\n");
+        }
+        def copy(self: Dynamic[T1]): Dynamic[T1] { //still sus cause on stack
+            val arr_new = new Dynamic[T1]();
+
+            for(val i = 0; i < self.size; i+= 1;) {
+               arr_new.push(self.arr[i]);
+            };
+            return arr_new;
+        }
+        def compare(self: Dynamic[T1], other: Dynamic[T1]): bool {
+            val same: bool = true;
+            if(self.size != other.size) {return false;};
+            for(val i = 0; i < self.size; i+= 1;) {
+                if(self.get(i) != other.get(i)) {same = false;};
+            };
+            return same;
+        }
+        def __add__(self: Dynamic[T1], other: Dynamic[T1]): Dynamic[T1] {
+            return self.concat(other);
+        }
+        def __print__(self: Dynamic[T1]) {
+            self.print_arr();
+        }
+    }
+    def main(): int {
+         val a = new Dynamic[char]();
+         a.push(array('a', 'b', 'c'));
+         val b = new Dynamic[char](array('d', 'e', 'f'));
+         print(a+b);
+    }
         """
       .ShouldBe("abcdef")
       .Run()

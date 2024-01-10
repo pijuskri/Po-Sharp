@@ -2,8 +2,9 @@ package posharp
 
 import fastparse.JavaWhitespace._
 import fastparse._
-
 import Expr.GetProperty
+import jdk.jshell.spi.ExecutionControl.NotImplementedException
+
 import scala.compat.Platform.EOL
 
 object Parser {
@@ -14,41 +15,51 @@ object Parser {
     var enum: List[Expr.DefineEnum] = List()
     var imports: List[Expr.Import] = List()
     x.foreach {
-      case y@Expr.Func(a, b, c, d) => func = func :+ y
-      case y@Expr.DefineInterface(a, b, c) => intf = intf :+ y
+      case y@Expr.Func(a, b, c, d, e) => func = func :+ y
+      case y@Expr.DefineInterface(a, b, c, d) => intf = intf :+ y
       case y@Expr.DefineEnum(a, b) => enum = enum :+ y
       case y@Expr.Import(a, b) => imports = imports :+ y
     }
     Expr.TopLevel(func, intf, enum, imports)
   })
 
-  def function[_: P]: P[Expr.Func] = P("def " ~/ ident ~ "(" ~/ functionArgs ~ ")" ~/ typeDef.? ~ block).map {
-    case (name, args, retType, body) => {
+  def function[_: P]: P[Expr.Func] = P("def " ~/ mod_ident ~ templateTypes.? ~ "(" ~/ functionArgs ~ ")" ~/ typeDef.? ~ block).map {
+    case (name, templates, args, retType, body) => {
       val ret = retType match {
         case Some(typ) => typ
         case None => Type.Undefined()
       }
-      Expr.Func(name.name, args, ret, body)
+      Expr.Func(name.name, args, ret, body, templates.getOrElse(List()).asInstanceOf[List[Type.T]])
+    }
+  }
+  def function_intf[_: P]: P[Expr.Func] = P("def " ~/ ident ~ templateTypes.? ~ "(" ~/ functionArgs ~ ")" ~/ typeDef.? ~ block).map {
+    case (name, templates, args, retType, body) => {
+      val ret = retType match {
+        case Some(typ) => typ
+        case None => Type.Undefined()
+      }
+      Expr.Func(name.name, args, ret, body, templates.getOrElse(List()).asInstanceOf[List[Type.T]])
     }
   }
 
-  def imports[_: P]: P[Expr.Import] = P("import " ~/ ident ~ "from" ~ fileName ~ ";").map(x=> Expr.Import(x._1.name, x._2.s))
+  def imports[_: P]: P[Expr.Import] = P(importPartial | importModule)
+  def importPartial[_: P]: P[Expr.Import] = P("import " ~ ident ~ "from" ~/ fileName ~ ";").map(x=> Expr.Import(x._1.name, x._2.s))
+  def importModule[_: P]: P[Expr.Import] = P("import " ~/ fileName ~ ";").map(x=> Expr.Import("__module__", x.s))
 
   /*
   def interfaceDef[_: P]: P[Expr.DefineInterface] = P("interface " ~ ident ~/ "{" ~ (ident ~ typeDef).rep(sep = ",") ~ "}").map(props=>
     Expr.DefineInterface(props._1.name, props._2.toList.map(x=>InputVar(x._1.name, x._2)))
   )
    */
-  def interfaceDef[_: P]: P[Expr.DefineInterface] = P("object " ~/ ident ~ "{" ~/ objValue ~ function.rep ~ "}").map(props =>
-    Expr.DefineInterface(props._1.name, props._2.map(x => InputVar(x.name, x.varType)), props._3.toList)
-  )
+  def interfaceDef[_: P]: P[Expr.DefineInterface] = P("object " ~/ mod_ident ~ templateTypes.? ~ "{" ~/ objValue ~ function_intf.rep ~ "}").map(props =>
+    Expr.DefineInterface(props._1.name, props._3.map(x => InputVar(x.name, x.varType)), props._4.toList, props._2.getOrElse(List()).asInstanceOf[List[Type.T]]))
 
   def objValue[_: P]: P[List[ObjVal]] = P(ident ~ typeDef ~ ("=" ~ prefixExpr).? ~ ";").rep.map(x => x.map {
     case (id, valtype, Some(value)) => ObjVal(id.name, valtype, value)
     case (id, valtype, None) => ObjVal(id.name, valtype, Type.defaultValue(valtype))
   }.toList)
 
-  def enumDef[_: P]: P[Expr.DefineEnum] = P("enum " ~ ident ~/ "{" ~ ident.rep(sep = ",") ~ "}").map(props =>
+  def enumDef[_: P]: P[Expr.DefineEnum] = P("enum " ~ mod_ident ~/ "{" ~ ident.rep(sep = ",") ~ "}").map(props =>
     Expr.DefineEnum(props._1.name, props._2.toList.map(x => x.name))
   )
 
@@ -72,11 +83,17 @@ object Parser {
     case (ident, None) => Expr.DefVal(ident.name, Type.Undefined())
   }
 
-  def accessVar[_: P]: P[Expr] = P(ident ~ ((".".! ~ ident ~ "(".! ~ prefixExpr.rep(sep = ",") ~ ")") | (".".! ~ ident) | ("[".! ~/ prefixExpr ~ "]")).rep).map { case (start, acs) =>
+  def accessVar[_: P]: P[Expr] = P(ident ~ ((".".! ~ ident ~ "(".! ~ prefixExpr.rep(sep = ",") ~ ")") | (".".! ~ ident) | ("[".! ~/ prefixExpr ~ "]")).rep)
+    .map { case (start, acs) =>
     acs.foldLeft(start: Expr)((acc, v) => v match {
       case (".", Expr.Ident(ident)) => GetProperty(acc, ident)
       case ("[", index: Expr) => Expr.GetArray(acc, index)
-      case (".", Expr.Ident(ident), "(", args: List[Expr]) => Expr.CallObjFunc(acc, Expr.CallF(ident, args))
+      //TODO template functions not handled
+      case (".", Expr.Ident(ident), "(", args: List[Expr]) => {
+        //val callf_prefix = if(prefix.nonEmpty) prefix else file_name
+        //callf_prefix+"_"+
+        Expr.CallObjFunc(acc, Expr.CallF(ident, args, List()))
+      }//throw new NotImplementedException("")
       case x => throw new ParseException(s"bad var access: $x");
     })
   }
@@ -128,7 +145,8 @@ object Parser {
   def getArraySize[_: P]: P[Expr.ArraySize] = P(returnsArray ~~ ".size").map((x) => Expr.ArraySize(x))
 
 
-  def instanceInterface[_: P]: P[Expr.InstantiateInterface] = P("new " ~/ ident ~ "(" ~/ prefixExpr.rep(sep = ",") ~ ")").map(x => Expr.InstantiateInterface(x._1.name, x._2.toList))
+  def instanceInterface[_: P]: P[Expr.InstantiateInterface] = P("new " ~/ mod_ident ~ templateTypes.? ~ "(" ~/ prefixExpr.rep(sep = ",") ~ ")")
+    .map(x => Expr.InstantiateInterface(x._1.name, x._3.toList, x._2.getOrElse(List())))
 
   def typeDef[_: P]: P[Type] = P(":" ~/ (typeBase | typeArray | typeFunc | typeUser))
   def typeDefNoCol[_: P]: P[Type] = P(typeBase | typeArray | typeFunc | typeUser)
@@ -136,16 +154,17 @@ object Parser {
   def typeArray[_: P]: P[Type] = P("array" ~/ "[" ~ typeDefNoCol ~ "]").map(x => Type.Array(x))
   def typeFunc[_: P]: P[Type] = P("func" ~/ "[" ~ "(" ~ typeDefNoCol.rep(sep=",") ~ ")" ~/ "=>" ~ typeDefNoCol ~ "]").map(x => Type.Function(x._1.toList, x._2))
 
-  def typeUser[_: P]: P[Type] = P(ident).map(x => Type.UserType(x.name))
+  def typeUser[_: P]: P[Type] = P(mod_ident ~ templateTypes.?).map(x => Type.UserType(x._1.name, x._2.getOrElse(List())))
 
-  def typeBase[_: P]: P[Type] = P(StringIn("int", "char", "float", "bool", "string", "void", "T1", "T2").!).map {
+  def typeBase[_: P]: P[Type] = P((StringIn("int", "char", "float", "bool", "string", "void").!) | ("T" ~ CharsWhileIn("0-9", 1)).!).map {
     case "int" => Type.Num();
     case "char" => Type.Character();
     case "float" => Type.NumFloat();
     case "bool" => Type.Bool();
     case "string" => Type.Str();
     case "void" => Type.Undefined();
-    case "T1" => Type.T1();
+    case "T1" => Type.T(1);
+    case "T2" => Type.T(2);
   }
 
   def parens[_: P] = P("(" ~/ (binOp | prefixExpr) ~ ")")
@@ -156,9 +175,11 @@ object Parser {
     case (value, "toChar") => Expr.Convert(value, Type.Character())
   }
 
-  def callFunction[_: P]: P[Expr.CallF] = P(ident ~ "(" ~/ prefixExpr.rep(sep = ",") ~/ ")").map {
-    case (name, args) => Expr.CallF(name.name, args.toList);
+  def callFunction[_: P]: P[Expr.CallF] = P(mod_ident ~ templateTypes.? ~ "(" ~/ prefixExpr.rep(sep = ",") ~/ ")").map {
+    case (name, templates, args) => Expr.CallF(name.name, args.toList, templates.getOrElse(List()));
   }//.filter((x) => !reservedKeywords.contains(x.name))
+
+  def templateTypes[_: P]: P[List[Type]] = (P("[" ~/ typeDefNoCol.rep(min=1, sep = ",") ~/ "]")).map(x=>x.toList)
 
   def retFunction[_: P]: P[Expr.Return] = P("return" ~/ prefixExpr.?).map(Expr.Return)
 
@@ -215,9 +236,27 @@ object Parser {
   def str[_: P]: P[Expr.Str] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(x => Expr.Str(x.replace("\\n", ""+10.toChar) + "\u0000"))
   def fileName[_: P]: P[Expr.Str] = P("\"" ~~/ CharsWhile(_ != '"', 0).! ~~ "\"").map(x => Expr.Str(x))
 
-  def ident[_: P]: P[Expr.Ident] = P(CharIn("a-zA-Z_") ~~ CharsWhileIn("a-zA-Z0-9_", 0)).!.map((input) => {
-    Expr.Ident(input)
-  }).filter(x => !reservedKeywords.contains(x.name))
+  def ident[_: P]: P[Expr.Ident] = P(CharIn("a-zA-Z_") ~~ CharsWhileIn("a-zA-Z0-9_", 0)).!
+    .filter(x => !reservedKeywords.contains(x))
+    .map((input) => {
+      Expr.Ident(input)
+    })
+
+  def mod_ident[_: P]: P[Expr.Ident] = P(mod_ident_raw)
+    .map((input) => {
+      val modules = input._1
+      val prefix = if (modules.nonEmpty) modules else file_name
+      Expr.Ident(prefix + "_" + input._2)
+    })
+  def mod_ident_raw[_: P]: P[(String, String)] = P((ident.! ~ "::").rep() ~ ident.!)
+    .filter(x => !x._1.exists(y => reservedKeywords.contains(y)) && !reservedKeywords.contains(x._2))
+    .map(x=> (x._1.toList.mkString("_"),x._2))
+  def mod_ident_no_default[_: P]: P[Expr.Ident] = P(mod_ident_raw)
+    .map((input) => {
+      val modules = input._1 + "_"
+      val prefix = if (modules.length > 1) modules else ""
+      Expr.Ident(prefix + input._2)
+    })
 
   def number[_: P]: P[Expr.Num] = P("-".!.? ~~ CharsWhileIn("0-9", 1)).!.map(x => Expr.Num(Integer.parseInt(x)))
 
@@ -248,12 +287,14 @@ object Parser {
     if (reservedKeywords.contains(input.name)) throw new ParseException(s"${input.name} is a reserved keyword");
   }
 
-  def parseInput(input: String): Expr = {
+  var file_name: String = ""
+  def parseInput(input: String, _file_name: String): Expr = {
+    file_name = _file_name;
     val parsed = fastparse.parse(input, topLevel(_), verboseFailures = true);
     parsed match {
-      case Parsed.Success(expr, n) => expr;
+      case Parsed.Success(expr, n) => expr.asInstanceOf[Expr];
       case t: Parsed.Failure => {
-        println(t.trace(true).longAggregateMsg); throw new ParseException("parsing fail");
+        println(t.trace(true).longAggregateMsg); throw new ParseException(s"parsing fail in $file_name");
       }
       case _ => throw new ParseException("parsing fail")
     }
