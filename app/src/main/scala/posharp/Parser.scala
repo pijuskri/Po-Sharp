@@ -83,9 +83,9 @@ object Parser {
     case (ident, None) => Expr.DefVal(ident.name, Type.Undefined())
   }
 
-  def accessVar[_: P]: P[Expr] = P(mod_ident_raw ~ ((".".! ~ ident ~ "(".! ~ prefixExpr.rep(sep = ",") ~ ")") | (".".! ~ ident) | ("[".! ~/ prefixExpr ~ "]")).rep)
-    .map { case (prefix, start, acs) =>
-    acs.foldLeft(Expr.Ident(start): Expr)((acc, v) => v match {
+  def accessVar[_: P]: P[Expr] = P(ident ~ ((".".! ~ ident ~ "(".! ~ prefixExpr.rep(sep = ",") ~ ")") | (".".! ~ ident) | ("[".! ~/ prefixExpr ~ "]")).rep)
+    .map { case (start, acs) =>
+    acs.foldLeft(start: Expr)((acc, v) => v match {
       case (".", Expr.Ident(ident)) => GetProperty(acc, ident)
       case ("[", index: Expr) => Expr.GetArray(acc, index)
       //TODO template functions not handled
