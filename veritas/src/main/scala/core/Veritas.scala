@@ -10,7 +10,6 @@ import java.lang.reflect.Method
 import java.util.concurrent.{Executors, TimeUnit}
 import scala.collection.mutable
 import scala.io.AnsiColor._
-import scala.reflect.internal.util.ScalaClassLoader
 import scala.util.{Failure, Success, Try}
 
 object Veritas {
@@ -93,7 +92,8 @@ object Veritas {
 
     // Get the class and instantiate it
     res.foreach(c => {
-      val testClass = ScalaClassLoader(getClass.getClassLoader).tryToInitializeClass(c)
+      val testClass = Class.forName(c).getConstructor().newInstance().getClass
+
       var lastMethodName = ""
 
       def runTest(instance: AnyRef, tests: Array[Method]): Unit = {
@@ -130,11 +130,10 @@ object Veritas {
       }
 
       try {
-        val instance = ScalaClassLoader(getClass.getClassLoader).create(c)
+        val instance = Class.forName(c).getConstructor().newInstance().asInstanceOf[AnyRef]
 
         // Run all tests in the class
-        testClass.get.getMethods.filter(m =>
-          m.getName.toLowerCase().contains("test")) // Filter out non-test methods
+        testClass.getMethods.filter(m => m.getName.toLowerCase().contains("test")) // Filter out non-test methods
           .grouped(chunkSize) // Group in chunks
           .foreach(chunk => {
             pool.execute(() => runTest(instance, chunk))
@@ -167,12 +166,14 @@ object Veritas {
    */
   def Compile(input: String): Try[String] = {
     try {
-      val parsed = Parser.parseInput(input)
+      val parsed = Parser.parseInput(input, "file_name")
+      val something = new ToAssembly("file_name")
+      something.declarationPass(parsed)
 
       if (calculateCoverage)
         cov.AddCoverage(parsed)
 
-      this.synchronized(Success(ToAssembly.convertMain(parsed, "", Map[String, Expr.TopLevel]())))
+      this.synchronized(Success(something.convertMain(parsed, Map[String, Expr.TopLevel]())))
     } catch {
       case e: Exception => Failure(e)
     }

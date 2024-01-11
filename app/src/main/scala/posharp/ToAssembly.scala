@@ -6,8 +6,6 @@ import sourcecode.Text.generate
 
 import scala.io.AnsiColor
 import scala.language.postfixOps
-import scala.reflect.runtime.currentMirror
-import scala.reflect.runtime.universe.termNames
 
 class ToAssembly(currentFile: String) {
   type Env = Map[String, Variable]
@@ -913,28 +911,14 @@ class ToAssembly(currentFile: String) {
   }
 
   def applyFunctionToUnknownCaseClass(instance: Expr, func: Any => Any): Expr = {
-    val mirror = currentMirror
-    val instanceMirror = mirror.reflect(instance)
-    val classSymbol = instanceMirror.symbol
+    val _class = instance.getClass
+    val fields = _class.getDeclaredFields
+      .map(f => {
+        f.setAccessible(true)
+        func(f.get(instance))
+      })
 
-    if (!classSymbol.isClass || !classSymbol.asClass.isCaseClass) {
-      throw new IllegalArgumentException("The provided instance is not a case class.")
-    }
-
-    val classType = instanceMirror.symbol.typeSignature
-    val constructorSymbol = classType.decl(termNames.CONSTRUCTOR.asInstanceOf[scala.reflect.runtime.universe.Name]).asMethod
-    val constructorMirror = mirror.reflectClass(classSymbol.asClass).reflectConstructor(constructorSymbol)
-
-    // Collecting parameters from the constructor
-    val params = constructorSymbol.paramLists.flatten
-
-    val fieldValues = params.map { param =>
-      val fieldTerm = classType.decl(param.name).asTerm.accessed.asTerm
-      val fieldValue = instanceMirror.reflectField(fieldTerm).get
-      func(fieldValue)
-    }
-
-    constructorMirror(fieldValues: _*).asInstanceOf[Expr]
+    _class.getConstructors()(0).newInstance(fields:_*).asInstanceOf[Expr]
   }
 
   def replaceWithMappingFunc(template_mappings: List[(Type, Type)]): Type => Type = {
