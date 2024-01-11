@@ -77,7 +77,7 @@ class TestExample {
   def runTestGenericInterface1(): (Boolean, String) =
     """object Test[T1] {
       |    toPrint: T1;
-      |    def Test(self: Test[T1], toPrint: T1): Test[T1] {
+      |    def Constructor(self: Test[T1], toPrint: T1): Test[T1] {
       |        self.toPrint = toPrint;
       |        return self;
       |    }
@@ -105,14 +105,14 @@ class TestExample {
           allocated: int;
           arr: array[char];
 
-          def Dynamic(self: Dynamic): Dynamic {
+          def Constructor(self: Dynamic): Dynamic {
               self.arr = array[char][8];
               self.allocated = 8;
               self.size = 0;
               return self;
           }
-          def Dynamic(self: Dynamic, arr: array[char]): Dynamic {
-              self.Dynamic();
+          def Constructor(self: Dynamic, arr: array[char]): Dynamic {
+              self.Constructor();
               self.push(arr);
               return self;
           }
@@ -225,14 +225,14 @@ object Dynamic[T1] {
         allocated: int;
         arr: array[T1];
 
-        def Dynamic(self: Dynamic[T1]): Dynamic[T1] {
+        def Constructor(self: Dynamic[T1]): Dynamic[T1] {
             self.arr = array[T1][8];
             self.allocated = 8;
             self.size = 0;
             return self;
         }
-        def Dynamic(self: Dynamic[T1], arr: array[T1]): Dynamic[T1] {
-            self.Dynamic();
+        def Constructor(self: Dynamic[T1], arr: array[T1]): Dynamic[T1] {
+            self.Constructor();
             self.push(arr);
             return self;
         }
