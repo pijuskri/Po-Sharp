@@ -4,12 +4,15 @@ import core.FileHelpers.deleteTestArtifacts
 import org.reflections.Reflections
 import org.reflections.scanners.Scanners.TypesAnnotated
 import org.reflections.util.ConfigurationBuilder
+
+import scala.quoted.*
 import posharp.{Expr, Parser, ToAssembly}
+import test.TestExample
 
 import java.lang.reflect.Method
 import java.util.concurrent.{Executors, TimeUnit}
 import scala.collection.mutable
-import scala.io.AnsiColor._
+import scala.io.AnsiColor.*
 import scala.util.{Failure, Success, Try}
 
 object Veritas {
@@ -80,13 +83,8 @@ object Veritas {
       .setScanners(TypesAnnotated))
 
     // Get all annotated types from package test
-    val res = reflections
-      .getStore
-      .get("TypesAnnotated")
-      .get("scala.reflect.ScalaSignature")
-      .toArray
-      .filter(_.asInstanceOf[String].contains("test."))
-      .map(_.asInstanceOf[String])
+    // TODO: Un-hardcode classes and use annotations
+    val res = List(TestExample().getClass.getName)
 
     println()
 
