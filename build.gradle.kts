@@ -8,7 +8,8 @@ repositories {
 }
 
 dependencies {
-    implementation("org.scala-lang:scala-library:2.13.10")
+    implementation("org.scala-lang:scala3-library_3:3.3.1")
     implementation("com.google.guava:guava:31.1-jre")
-    implementation("com.lihaoyi:fastparse_2.13:2.3.3")
+    implementation("com.lihaoyi:fastparse_3:3.0.2")
+    //implementation("co.blocke:scala-reflection_3:2.0.0")
 }

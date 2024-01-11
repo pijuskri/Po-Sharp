@@ -6,86 +6,81 @@ import scala.io.{AnsiColor, Source}
 object Constants {
   val FileExtension = ".txt"
 }
+//input_sourceDir: Option[String]
+@main def CompileMain(): Unit = {
+  val sourceDir = "po_src"//input_sourceDir.getOrElse("po_src")
 
-object Main extends App {
-    var sourceDir = "po_src"
+  val files = recursiveListFiles(new File(sourceDir), "ignore").toList.filter(x => x.getName.contains(Constants.FileExtension))
+  val sourceDirPath = Paths.get(sourceDir)
+  val declarations: Map[String, (ToAssembly, Expr.TopLevel)] = files.map(file => {
+    val toCompile = readFile(file)
+    var relative_name = sourceDirPath.relativize(file.toPath).toFile.getPath.split(Constants.FileExtension)(0)
+    relative_name = relative_name.replace("\\", "/")
 
-    if (args.length > 0) {
-      sourceDir = args(0)
-    }
-    val files = recursiveListFiles(new File(sourceDir), "ignore").toList.filter(x => x.getName.contains(Constants.FileExtension))
-    val sourceDirPath = Paths.get(sourceDir)
-    val declarations: Map[String, (ToAssembly, Expr.TopLevel)] = files.map(file => {
-      val toCompile = readFile(file)
-      var relative_name = sourceDirPath.relativize(file.toPath).toFile.getPath.split(Constants.FileExtension)(0)
-      relative_name = relative_name.replace("\\", "/")
-
-      val parsed = Parser.parseInput(toCompile, relative_name.replace("/", "_"));
-      //println(Util.prettyPrint(parsed))
-      val top = parsed match {
-        case x: Expr.TopLevel => x
-        case _ => throw new Exception("unexpected type in top level")
-      }
-
-      (relative_name -> (new ToAssembly(relative_name), top))
-    }).toMap
-    //declaration step
-    declarations.foreach(x => {
-      val code = x._2._2
-      val converter = x._2._1
-      converter.declarationPass(code)
-    })
-    declarations.foreach(x => {
-      val file = x._1
-      val code = x._2._2
-      val converter = x._2._1
-      var asm = "";
-
-      try {
-        asm = converter.convertMain(code, declarations.map(x=>x._1->x._2._2).filter(x => x._1 != file));
-        //asm += StringCode.stringCode;
-      }
-      catch {
-        case x: Exception => {
-          println(AnsiColor.RED + s"Compilation exception in \"$file\": ${x.getMessage} ${x.getStackTrace.mkString("\n")}" + AnsiColor.RESET);
-          sys.exit(1);
-        }
-      }
-
-      println("")
-      writeCompiled(asm, "compiled/", file)
-    })
-  def writeCompiled(asm: String, directoryPath: String, file: String): Unit = {
-    val flatFile = file.split("/").last + ".ll"
-    writeToFile(asm, directoryPath, flatFile)
-  }
-
-  def writeToFile(input: String, directoryPath: String, filename: String): Unit = {
-    val directory = new File(directoryPath);
-    if (!directory.exists()) directory.mkdir();
-
-    val fileWriter = new FileWriter(new File(directoryPath+filename))
-    fileWriter.write(input)
-    fileWriter.close()
-  }
-  def readFile(src: File): String = {
-    val source = Source.fromFile(src)
-    val codetxt = source.mkString
-    source.close()
-    codetxt
-  }
-
-  def recursiveListFiles(f: File, ignore: String): Array[File] = {
-    if (!f.exists()) {
-      return Array()
+    val parsed = Parser.parseInput(toCompile, relative_name.replace("/", "_"));
+    //println(Util.prettyPrint(parsed))
+    val top = parsed match {
+      case x: Expr.TopLevel => x
+      case _ => throw new Exception("unexpected type in top level")
     }
 
-    if(f.isFile) return Array(f)
-    val these = f.listFiles
-    these ++ these.filter(x => x.isDirectory && x.getName != ignore).flatMap(x => recursiveListFiles(x, ignore))
+    (relative_name -> (new ToAssembly(relative_name), top))
+  }).toMap
+  //declaration step
+  declarations.foreach(x => {
+    val code = x._2._2
+    val converter = x._2._1
+    converter.declarationPass(code)
+  })
+  declarations.foreach(x => {
+    val file = x._1
+    val code = x._2._2
+    val converter = x._2._1
+    var asm = "";
+
+    try {
+      asm = converter.convertMain(code, declarations.map(x => x._1 -> x._2._2).filter(x => x._1 != file));
+      //asm += StringCode.stringCode;
+    }
+    catch {
+      case x: Exception => {
+        println(AnsiColor.RED + s"Compilation exception in \"$file\": ${x.getMessage} ${x.getStackTrace.mkString("\n")}" + AnsiColor.RESET);
+        sys.exit(1);
+      }
+    }
+
+    println("")
+    writeCompiled(asm, "compiled/", file)
+  })
+}
+def writeCompiled(asm: String, directoryPath: String, file: String): Unit = {
+  val flatFile = file.split("/").last + ".ll"
+  writeToFile(asm, directoryPath, flatFile)
+}
+
+def writeToFile(input: String, directoryPath: String, filename: String): Unit = {
+  val directory = new File(directoryPath);
+  if (!directory.exists()) directory.mkdir();
+
+  val fileWriter = new FileWriter(new File(directoryPath + filename))
+  fileWriter.write(input)
+  fileWriter.close()
+}
+def readFile(src: File): String = {
+  val source = Source.fromFile(src)
+  val codetxt = source.mkString
+  source.close()
+  codetxt
+}
+
+def recursiveListFiles(f: File, ignore: String): Array[File] = {
+  if (!f.exists()) {
+    return Array()
   }
 
-
+  if (f.isFile) return Array(f)
+  val these = f.listFiles
+  these ++ these.filter(x => x.isDirectory && x.getName != ignore).flatMap(x => recursiveListFiles(x, ignore))
 }
 
 object StringCode {
