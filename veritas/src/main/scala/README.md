@@ -9,6 +9,11 @@ for linux or mac locally but do note that there were issues on the remote pipeli
 
 ### Writing a Test
 
+> [!WARNING]
+> The tests are no longer discovered via the annotation, instead there is a hardcoded list at the top of
+> [`veritas`](./core/Veritas.scala). This is because I have no clue how to get reflection to work properly in Scala 3.
+> The tests inside the classes are still "discovered" the same way as before.
+
 Writing tests is pretty straight forward. For a method to be considered a test it must:
 
 - Be inside the `test` package
