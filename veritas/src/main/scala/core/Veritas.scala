@@ -5,7 +5,6 @@ import org.reflections.Reflections
 import org.reflections.scanners.Scanners.TypesAnnotated
 import org.reflections.util.ConfigurationBuilder
 
-import scala.quoted.*
 import posharp.{Expr, Parser, ToAssembly}
 import test.TestExample
 
@@ -14,6 +13,9 @@ import java.util.concurrent.{Executors, TimeUnit}
 import scala.collection.mutable
 import scala.io.AnsiColor.*
 import scala.util.{Failure, Success, Try}
+
+// TODO: Un-hardcode classes and use annotations
+val CLASSES_TO_TEST = List(TestExample().getClass.getName);
 
 object Veritas {
   private val numOfThreads = 10
@@ -82,14 +84,10 @@ object Veritas {
       .forPackage("test")
       .setScanners(TypesAnnotated))
 
-    // Get all annotated types from package test
-    // TODO: Un-hardcode classes and use annotations
-    val res = List(TestExample().getClass.getName)
-
     println()
 
     // Get the class and instantiate it
-    res.foreach(c => {
+    CLASSES_TO_TEST.foreach(c => {
       val testClass = Class.forName(c).getConstructor().newInstance().getClass
 
       var lastMethodName = ""
