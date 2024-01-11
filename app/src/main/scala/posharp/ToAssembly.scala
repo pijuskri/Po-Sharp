@@ -1,13 +1,9 @@
 package posharp
 
-import posharp.ToAssembly.{FunctionInfo, InterfaceInfo, EnumInfo, Variable, FileDeclaration}
+import posharp.ToAssembly.{EnumInfo, FileDeclaration, FunctionInfo, InterfaceInfo, Variable}
 import posharp.Type.{UserType, defaultValue, shortS, toLLVM}
-import sourcecode.Text.generate
 
 import scala.io.AnsiColor
-import scala.language.postfixOps
-import scala.reflect.runtime.currentMirror
-import scala.reflect.runtime.universe.termNames
 
 class ToAssembly(currentFile: String) {
   type Env = Map[String, Variable]
@@ -878,11 +874,15 @@ class ToAssembly(currentFile: String) {
     case x => func(x)
   }
   def replaceType(input: List[InputVar], func: (Type) => Type): List[InputVar] = {
-    input.map(x =>
-      InputVar(x.name, traverseTypeTree(x.varType, func)))
+    input.map(x => replaceType(x, func))
+  }
+
+  def replaceType(x: InputVar, func: (Type) => Type): InputVar = {
+      InputVar(x.name, traverseTypeTree(x.varType, func))
   }
 
   def replaceType(input: Expr, func: (Type) => Type): Expr = input match {
+    /*
     case Expr.DefVal(a, varType) => Expr.DefVal(a, traverseTypeTree(varType, func))
     case Expr.DefValWithValue(variable, varType, value) => Expr.DefValWithValue(variable, traverseTypeTree(varType, func), replaceType(value, func))
     case Expr.Func(name, argNames, retType, body, templates) => Expr.Func(name, replaceType(argNames, func), traverseTypeTree(retType, func), replaceType(body, func).asInstanceOf[Expr.Block], templates)
@@ -894,47 +894,54 @@ class ToAssembly(currentFile: String) {
       Expr.DefineInterface(name, replaceType(props, func), functions.map(x=>replaceType(x, func).asInstanceOf[Expr.Func]),
         templates.map(x=>traverseTypeTree(x, func))
       )
+
+     */
     //case Expr.DefineArray(size, elemType:Type, defaultValues: List[Expr]) => Expr.DefineArray(size, traverseTypeTree(elemType, func), defaultValues)
     //case Expr.InstantiateInterface
     case x => {
+      /*
       val param_func: (Any => Any) = new ((Any) => Any) {
         def apply(in: Any): Any = in match {
           case expr: Expr => replaceType(expr, func)
           case t: Type => traverseTypeTree(t, func)
+          case vr: InputVar => replaceType(vr, func)
           case h :: t => (h +: t).map(y=>apply(y))
-          case _ => in
+          case _ => println(in);in
         }
       }
+       */
+      val param_func = traversalFunctionBuilder {
+        case expr: Expr => replaceType(expr, func)
+        case t: Type => traverseTypeTree(t, func)
+        case vr: InputVar => replaceType(vr, func)
+        case in => in
+      }
+      //transformCaseClass(x, param_func)
       applyFunctionToUnknownCaseClass(x, param_func)
+      //x
     }
-
+      
       //case class Convert(value: Expr, to: Type) extends Expr
       //case class Lambda(argNames: List[InputVar], retType: Type, body: Expr.Block) extends Expr
   }
-
+  def traversalFunctionBuilder(func: Any => Any) = {
+    new((Any) => Any) {
+      def apply(in: Any): Any = in match {
+        case h :: t => (h +: t).map(y => apply(y))
+        case Some(x) => Some(apply(x))
+        case x => func(x)
+      }
+    }
+  }
   def applyFunctionToUnknownCaseClass(instance: Expr, func: Any => Any): Expr = {
-    val mirror = currentMirror
-    val instanceMirror = mirror.reflect(instance)
-    val classSymbol = instanceMirror.symbol
+    val _class = instance.getClass
+    val fields = _class.getDeclaredFields
+      .map(f => {
+        f.setAccessible(true)
+        func(f.get(instance))
+      })
 
-    if (!classSymbol.isClass || !classSymbol.asClass.isCaseClass) {
-      throw new IllegalArgumentException("The provided instance is not a case class.")
-    }
-
-    val classType = instanceMirror.symbol.typeSignature
-    val constructorSymbol = classType.decl(termNames.CONSTRUCTOR.asInstanceOf[scala.reflect.runtime.universe.Name]).asMethod
-    val constructorMirror = mirror.reflectClass(classSymbol.asClass).reflectConstructor(constructorSymbol)
-
-    // Collecting parameters from the constructor
-    val params = constructorSymbol.paramLists.flatten
-
-    val fieldValues = params.map { param =>
-      val fieldTerm = classType.decl(param.name).asTerm.accessed.asTerm
-      val fieldValue = instanceMirror.reflectField(fieldTerm).get
-      func(fieldValue)
-    }
-
-    constructorMirror(fieldValues: _*).asInstanceOf[Expr]
+    _class.getConstructors()(0).newInstance(fields:_*).asInstanceOf[Expr]
   }
 
   def replaceWithMappingFunc(template_mappings: List[(Type, Type)]): Type => Type = {
@@ -1046,4 +1053,45 @@ class Counter {
     counter = pausedCounter;
   }
 }
+/*
+inline def transformCaseClass[A](inline obj: A): A = ${ transformCaseClassImpl('obj) }
+
+import scala.quoted.*
+//import sourcecode.Text.generate
+
+//import scala.language.postfixOps
+//import scala.quoted.Quotes
+def transformCaseClassImpl[A: Type](objExpr: Expr[A])(using Quotes): Expr[A] = {
+  import quotes.reflect.*
+  val v: Term = objExpr.asTerm
+  
+  def transformTerm(term: Term): Term = term match {
+    case Inlined(_, _, expr) => transformTerm(expr)
+    case Block(stats, expr) => Block(stats, transformTerm(expr))
+    case Apply(Select(lhs, name), args) =>
+      Apply(Select.unique(transformTerm(lhs), name), args.map(arg => transformTerm(arg)))
+    case Ident(_) =>
+      val sym = term.symbol //.asTerm
+      if sym.isValDef && sym.owner.isClassDef then
+        val fieldType = sym.tree.asInstanceOf[ValDef].tpt.tpe
+        fieldType.asType match {
+          case '[t] => '{ transformField(${ Ref(sym).asExprOf[t] }) }.asTerm
+        }
+      else term
+    case _ => term
+  }
+
+
+  val transformedTerm = transformTerm(objExpr.asTerm)
+  transformedTerm.asExprOf[A]
+}
+def transformField[A](field: A): A = {
+  // Example transformation logic
+  // Customize this as per your requirements
+  field match {
+    case _         => println(field); field
+  }
+}
+*/
+
 
