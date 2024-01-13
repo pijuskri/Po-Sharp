@@ -924,6 +924,7 @@ class ToAssembly(currentFile: String) {
       //case class Convert(value: Expr, to: Type) extends Expr
       //case class Lambda(argNames: List[InputVar], retType: Type, body: Expr.Block) extends Expr
   }
+
   def traversalFunctionBuilder(func: Any => Any) = {
     new((Any) => Any) {
       def apply(in: Any): Any = in match {
@@ -933,6 +934,7 @@ class ToAssembly(currentFile: String) {
       }
     }
   }
+  
   def applyFunctionToUnknownCaseClass(instance: Expr, func: Any => Any): Expr = {
     val _class = instance.getClass
     val fields = _class.getDeclaredFields

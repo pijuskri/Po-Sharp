@@ -1,6 +1,6 @@
 package core
 
-import posharp.Main.writeToFile
+import posharp.writeToFile
 
 import java.io.File
 import scala.sys.process._

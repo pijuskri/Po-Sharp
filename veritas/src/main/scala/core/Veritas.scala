@@ -4,14 +4,18 @@ import core.FileHelpers.deleteTestArtifacts
 import org.reflections.Reflections
 import org.reflections.scanners.Scanners.TypesAnnotated
 import org.reflections.util.ConfigurationBuilder
+
 import posharp.{Expr, Parser, ToAssembly}
+import test.TestExample
 
 import java.lang.reflect.Method
 import java.util.concurrent.{Executors, TimeUnit}
 import scala.collection.mutable
-import scala.io.AnsiColor._
-import scala.reflect.internal.util.ScalaClassLoader
+import scala.io.AnsiColor.*
 import scala.util.{Failure, Success, Try}
+
+// TODO: Un-hardcode classes and use annotations
+val CLASSES_TO_TEST = List(TestExample().getClass.getName);
 
 object Veritas {
   private val numOfThreads = 10
@@ -80,20 +84,12 @@ object Veritas {
       .forPackage("test")
       .setScanners(TypesAnnotated))
 
-    // Get all annotated types from package test
-    val res = reflections
-      .getStore
-      .get("TypesAnnotated")
-      .get("scala.reflect.ScalaSignature")
-      .toArray
-      .filter(_.asInstanceOf[String].contains("test."))
-      .map(_.asInstanceOf[String])
-
     println()
 
     // Get the class and instantiate it
-    res.foreach(c => {
-      val testClass = ScalaClassLoader(getClass.getClassLoader).tryToInitializeClass(c)
+    CLASSES_TO_TEST.foreach(c => {
+      val testClass = Class.forName(c).getConstructor().newInstance().getClass
+
       var lastMethodName = ""
 
       def runTest(instance: AnyRef, tests: Array[Method]): Unit = {
@@ -130,11 +126,10 @@ object Veritas {
       }
 
       try {
-        val instance = ScalaClassLoader(getClass.getClassLoader).create(c)
+        val instance = Class.forName(c).getConstructor().newInstance().asInstanceOf[AnyRef]
 
         // Run all tests in the class
-        testClass.get.getMethods.filter(m =>
-          m.getName.toLowerCase().contains("test")) // Filter out non-test methods
+        testClass.getMethods.filter(m => m.getName.toLowerCase().contains("test")) // Filter out non-test methods
           .grouped(chunkSize) // Group in chunks
           .foreach(chunk => {
             pool.execute(() => runTest(instance, chunk))
@@ -167,12 +162,14 @@ object Veritas {
    */
   def Compile(input: String): Try[String] = {
     try {
-      val parsed = Parser.parseInput(input)
+      val parsed = Parser.parseInput(input, "file_name")
+      val something = new ToAssembly("file_name")
+      something.declarationPass(parsed)
 
       if (calculateCoverage)
         cov.AddCoverage(parsed)
 
-      this.synchronized(Success(ToAssembly.convertMain(parsed, "", Map[String, Expr.TopLevel]())))
+      this.synchronized(Success(something.convertMain(parsed, Map[String, Expr.TopLevel]())))
     } catch {
       case e: Exception => Failure(e)
     }

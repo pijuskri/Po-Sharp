@@ -9,6 +9,11 @@ for linux or mac locally but do note that there were issues on the remote pipeli
 
 ### Writing a Test
 
+> [!WARNING]
+> The tests are no longer discovered via the annotation, instead there is a hardcoded list at the top of
+> [`veritas`](./src/main/scala/core/Veritas.scala). This is because I have no clue how to get reflection to work properly in Scala 3.
+> The tests inside the classes are still "discovered" the same way as before.
+
 Writing tests is pretty straight forward. For a method to be considered a test it must:
 
 - Be inside the `test` package
@@ -16,7 +21,7 @@ Writing tests is pretty straight forward. For a method to be considered a test i
 - Include the word `test` in the method name
 - Have a return type of `(Boolean, String)`
 
-The [`PoSharp.scala`](./core/PoSharp.scala) class is created to provide an interface as well as some helper methods to aid in
+The [`PoSharp.scala`](./src/main/scala/core/PoSharp.scala) class is created to provide an interface as well as some helper methods to aid in
 writing tests. Do note that the framework considers the last printed value to be the value to check, this means that each
 snippet must have a print statement.
 
@@ -53,7 +58,7 @@ class test.TestExample {
 }
 ```
 
-The [`PoSharp.scala`](./core/PoSharp.scala) file contains thorough documentation on all the different methods that it provides
+The [`PoSharp.scala`](./src/main/scala/core/PoSharp.scala) file contains thorough documentation on all the different methods that it provides
 which I will be keeping up to date so be sure to read through the JavaDoc.
 
 ### Running the Tests

@@ -8,9 +8,8 @@ repositories {
 }
 
 dependencies {
-    implementation("org.scala-lang:scala-library:2.13.10")
+    implementation("org.scala-lang:scala3-library_3:3.3.1")
     implementation("org.reflections:reflections:0.10.2")
-    implementation("org.scala-lang:scala-reflect:2.13.10")
     implementation(project(":app"))
 }
 
