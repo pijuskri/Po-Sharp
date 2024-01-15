@@ -89,6 +89,7 @@ object Type {
   case class Function(args: List[Type], retType: Type) extends Type
   case class T(num: Int) extends Type
   case class Enum(el: List[String]) extends Type
+  case class Closure(func: Function, env: List[Type]) extends Type
 
   //to be converted when parsing
   case class UserType(name: String, templates: List[Type]) extends Type
@@ -104,13 +105,10 @@ object Type {
     case Function(args, retType) => "func_"+args.map(x=>shortS(x)).mkString+"_"+shortS(retType)
     case UserType(name, templates) => name + templates.map(x=>shortS(x)).mkString
     case T(a) => s"T$a"
+    case _ => throw new Exception(s"$value unrecognised");
   }
   def compare(val1: Type, val2: Type): Boolean = (val1, val2) match {
     case (a,b) if a == b => true
-    case (T(_), _) => true
-    case (_, T(_)) => true
-    case (Array(T(_)), _) => true
-    case (_, Array(T(_))) => true
     case _ => false
   }
   def compare(value: (Type, Type)): Boolean = compare(value._1,value._2)
@@ -126,12 +124,14 @@ object Type {
     case NumFloat() => "double";
     case Character() => "i8"
     case Bool() => "i1"
-    case Array(inner) => s"%Type.array.${toLLVM(inner)}*"
+    case Array(inner) => s"{i32, ${toLLVM(inner)}*}*"//s"%Type.array.${toLLVM(inner)}*"
     case Undefined() => "void"
     case Str() => "i8*"
+    case Function(args, retType) => s"${toLLVM(retType)} (${args.map(x=>toLLVM(x)).mkString(",")})*"
     //presume that usertype is a class. Might have aliases in the future
     case UserType(name, templates) => s"%Class.$name.${templates.map(x=>toLLVM(x)).mkString}*"
     case Interface(name, _, _, templates) => s"%Class.$name.${templates.map(x=>toLLVM(x)).mkString}*"
+    case Closure(func, env) => s"{${toLLVM(func)}, {${env.map(x=>toLLVM(x)).mkString(",")}}}*"
     /*
     case Interface(vars, funcs) => {
       val argS = vars.map(x=>toLLVM(x.varType)).mkString(", ")

@@ -87,7 +87,7 @@ class ToAssembly(currentFile: String) {
       val types = intf.props.map(x => Type.toLLVM(x.varType)).mkString(", ")
       s"$llvm_intf = type {$types}\n"
     }).mkString
-    //converted += defineFunctions(lambdas, true);
+    converted += defineFunctions(lambdas, true, false);
     converted += stringLiterals.mkString
     converted += """attributes #0 = { mustprogress noinline nounwind optnone uwtable "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }
                    |attributes #1 = { nocallback nofree nosync nounwind readnone speculatable willreturn }
@@ -183,15 +183,15 @@ class ToAssembly(currentFile: String) {
         case (_, valType, _) => throw new Exception(s"expected a interface, got ${valType}")
       }
       case Expr.CallF(name, args, templates) => {
+        val prefix_removed = name.replaceFirst(file_prefix+"_", "")
         if(functions.exists(x=>x.name == name)) interpFunction(name, args, templates, env)
-        //else if(env.contains(name)) callLambda(Expr.Ident(name), args, reg, env)
+        else if(env.contains(prefix_removed)) callLambda(Expr.Ident(prefix_removed), args, env)
         else throw new Exception(s"unknown identifier $name")
       }
       case Expr.CallObjFunc(obj, func) => convertLoc(obj, env) match {
-        //TODO investigate callobj
-        //case _ => throw new NotImplementedError("")
         case (code, t@Type.Interface(_, props, funcs, templates), loc) => callObjFunction(Expr.Compiled(code, t, loc), func, props, funcs, isStatic = false, env)
         case (code, t@Type.StaticInterface(props, funcs), loc) => callObjFunction(Expr.Compiled(code, t, loc), func, props, funcs, isStatic = true, env)
+        case (_, t, _) => throw new Exception(s"Expected a interface, got ${t}")
       }
       case Expr.InstantiateInterface(name, values, templates) => {
         if (templates.nonEmpty) interfaces.find(x=>x.name == name && x.templates == templates) match {
@@ -224,11 +224,14 @@ class ToAssembly(currentFile: String) {
           case Some(intf) => {
             val classT = toLLVM(intf) // s"%Class.$name"
 
+            /*
             var aloc = "";
             aloc += s"${varc.next()} = getelementptr $classT, $classT* null, i32 1\n" + s"${varc.next()} = ptrtoint $classT** ${varc.secondLast()} to i32\n"
             val bytesLoc = varc.last();
             aloc += s"${varc.next()} = call ptr (i32) @malloc(i32 $bytesLoc)\n";
             val alocLoc = varc.last();
+             */
+            val (aloc, alocLoc) = allocate_on_heap(classT)
 
             val valuesCompiled = values.map(x => convertLoc(x, env)).map(x => Expr.Compiled(x._1, x._2, x._3))
             //intf.funcs.find(x => x.name == name && x.args == values)
@@ -255,13 +258,40 @@ class ToAssembly(currentFile: String) {
       case Expr.Str(value) => (defineArrayKnown(value.length, Type.Character(), value.map(x=>Expr.Character(x)).toList, env)._1, Type.Array(Type.Character()))
 
 
-      case Expr.Lambda(args, ret, body) => {
-        val label = "lambda_" + lambdas.size
-        functions = functions :+ FunctionInfo(label, args, ret)
-        lambdas = lambdas :+ (Expr.Func(label, args, ret, body), env)
-        (s"mov ${reg.head}, $label\n", Type.Function(args.map(x=>x.varType), ret))
-      }
+
        */
+      //TODO check if lambda already been generated
+      case Expr.Lambda(args, retType, body) => {
+        val label = "lambda_" + lambdas.size
+
+        val info = FunctionInfo(label, "", args, retType, List())
+        functions = functions :+ info
+        lambdas = lambdas :+ (Expr.Func(label, args, retType, body, List()), env)
+        val func_Type = Type.Function(args.map(x=>x.varType), retType)
+        val func_name = fNameSignature(info)
+        val struct_loc = varc.next()
+
+        var ret = ""
+        val struct_llvm_type = s"{${env.map(x=>Type.toLLVM(x._2.varType)).mkString(",")}}"
+        val struct_llvm_type_dec = s"%Closure.$label = type {${env.map(x=>Type.toLLVM(x._2.varType))}}\n"
+        ret += s"$struct_loc = alloca $struct_llvm_type\n"
+        val (arg_code: List[String], arg_types: List[Type]) = env.zipWithIndex.map((x,idx)=>{
+          val (code, ty, loc) = convertLoc(Expr.Ident(x._1), env)
+          val ret = code +
+          s"${varc.next()} = getelementptr $struct_llvm_type, $struct_llvm_type* $struct_loc, i32 0, i32 $idx\n" +
+          s"store ${Type.toLLVM(ty)} $loc, ${Type.toLLVM(ty)}* ${varc.last()}\n"
+          (ret, ty)
+        }).unzip: @unchecked
+        ret += arg_code.mkString("")
+        val closure_type = Type.Closure(func_Type, arg_types)
+        val (heap_code, closure_aloc) = allocate_on_heap(closure_type)
+        ret += heap_code
+
+        ret += s"${varc.next()} = alloca ${Type.toLLVM(func_Type)}\n" +
+        s"store ${Type.toLLVM(func_Type)} @$func_name, ${Type.toLLVM(func_Type)}* ${varc.last()}\n" +
+        s"${varc.next()} = load ${Type.toLLVM(func_Type)}, ${Type.toLLVM(func_Type)}* ${varc.secondLast()}\n"
+        (ret, func_Type)
+      }
       case Expr.Nothing() => ("", Type.Undefined());
       case Expr.Compiled(code, retType, _) => (code, retType);
       case Expr.Block(lines) => convertBlock(lines, env);
@@ -269,6 +299,23 @@ class ToAssembly(currentFile: String) {
     }
     (ret._1, makeUserTypesConcrete(ret._2))
   }
+
+  def allocate_on_heap(llvm_type: Type): (String, String) = allocate_on_heap(Type.toLLVM(llvm_type))
+  /**
+   * Call malloc and reserve memory based on type size
+   * @param llvm_type: llvm type string
+   * @return (code, pointer aloc)
+   */
+  def allocate_on_heap(llvm_type: String): (String, String) = {
+    var aloc = "";
+    aloc += s"${varc.next()} = getelementptr $llvm_type, $llvm_type* null, i32 1\n" +
+      s"${varc.next()} = ptrtoint $llvm_type** ${varc.secondLast()} to i32\n"
+    val bytesLoc = varc.last();
+    aloc += s"${varc.next()} = call ptr (i32) @malloc(i32 $bytesLoc)\n";
+    val alocLoc = varc.last();
+    (aloc, alocLoc)
+  }
+  def alloc_struct_with_args(args: List[Expr], env: Env): (String, List[Type]) = ???
   //TODO add line awareness for error reporting
   private def convertBlock(lines: List[Expr], env: Env): (String, Type) = {
     val conv = (_input: Expr) => convert(_input, env)
@@ -644,12 +691,32 @@ class ToAssembly(currentFile: String) {
       }
       case None => props.find(x=>x.name == func.name) match {
         case Some(InputVar(_, Type.Function(_,_))) => {
-          //callLambda(Expr.GetProperty(obj, func.name), func.args, reg, env)
-          ("",Type.Undefined())
+          callLambda(Expr.GetProperty(obj, func.name), func.args, env)
+          //("",Type.Undefined())
         }
         case None => throw new Exception(s"object has no property or function named $func")
       }
     }
+  }
+
+  def callLambda(input: Expr, args: List[Expr], env: Env): (String, Type) = convertLoc(input, env) match {
+    case (code, Type.Function(argTypes, retType), f_loc) => {
+      val argRet = args.map(arg => convertLoc(arg, env))
+      var ret = code;
+      ret += argRet.map(x => x._1).mkString
+
+      if (argTypes.length != args.length) throw new Exception(s"wrong number of arguments: expected ${argTypes.length}, got ${args.length}");
+      (argRet.map(x=>x._2) zip argTypes).foreach( x=> {
+        if (x._1!=x._2) throw new Exception(s"Wrong argument for function: expected ${x._2}, got ${x._1}");
+      })
+
+      val argsString = argRet.map(x=>s"${Type.toLLVM(x._2)} ${x._3}").mkString(", ")
+      val argTypeString = argTypes.map(x => Type.toLLVM(x)).mkString(", ")
+      if (retType != Type.Undefined()) ret += s"${varc.next()} = ";
+      ret += s"call ${Type.toLLVM(retType)} ($argTypeString) $f_loc($argsString)\n"
+      (ret, retType)
+    }
+    case (_, x, _) => throw new Exception(s"Can not call variable of type $x");
   }
   /*
   def callLambda(input: Expr, args: List[Expr], reg: List[String], env: Env): (String, Type) = convert(input, reg, env) match {
