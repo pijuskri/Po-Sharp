@@ -290,6 +290,7 @@ object Parser {
 
   var file_name: String = ""
   def parseInput(input: String, _file_name: String): Try[Expr] = {
+    file_name = _file_name
     val parsed = fastparse.parse(input, topLevel(_), verboseFailures = true);
     parsed match {
       case Parsed.Success(expr, n) => Success(expr.asInstanceOf[Expr]);
