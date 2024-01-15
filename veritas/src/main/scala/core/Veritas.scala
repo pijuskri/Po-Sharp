@@ -1,9 +1,6 @@
 package core
 
 import core.FileHelpers.deleteTestArtifacts
-import org.reflections.Reflections
-import org.reflections.scanners.Scanners.TypesAnnotated
-import org.reflections.util.ConfigurationBuilder
 
 import posharp.{Expr, Parser, ToAssembly}
 import test.TestExample
@@ -38,7 +35,7 @@ object Veritas {
    * @param args Command line arguments.
    */
   def main(args: Array[String]): Unit = {
-    println(args.mkString("Array(", ", ", ")"))
+    println(args.mkString("args=Array(", ", ", ")"))
     if (args.isDefinedAt(0) && args.head == "coverage") {
       calculateCoverage = true
       cov = Coverage
@@ -78,11 +75,6 @@ object Veritas {
     var exitCode = 0
     val out = new mutable.StringBuilder
     out.append('\n')
-
-    // reflection stuff
-    val reflections = new Reflections(new ConfigurationBuilder()
-      .forPackage("test")
-      .setScanners(TypesAnnotated))
 
     println()
 
@@ -162,7 +154,7 @@ object Veritas {
    */
   def Compile(input: String): Try[String] = {
     try {
-      val parsed = Parser.parseInput(input, "file_name")
+      val parsed = Parser.parseInput(input, "file_name").get
       val something = new ToAssembly("file_name")
       something.declarationPass(parsed)
 

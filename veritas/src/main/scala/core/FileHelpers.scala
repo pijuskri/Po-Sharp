@@ -54,6 +54,6 @@ object FileHelpers {
       .listFiles
       .filter(_.isFile)
       .filter(_.getName.contains("test"))
-      .foreach(el => el.delete())
+//      .foreach(el => el.delete())
   }
 }
