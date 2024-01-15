@@ -7,7 +7,7 @@ object Constants {
   val FileExtension = ".txt"
 }
 //input_sourceDir: Option[String]
-@main def CompileMain(): Unit = {
+@main def Main(): Unit = {
   val sourceDir = "po_src"//input_sourceDir.getOrElse("po_src")
 
   val files = recursiveListFiles(new File(sourceDir), "ignore").toList.filter(x => x.getName.contains(Constants.FileExtension))
@@ -17,7 +17,7 @@ object Constants {
     var relative_name = sourceDirPath.relativize(file.toPath).toFile.getPath.split(Constants.FileExtension)(0)
     relative_name = relative_name.replace("\\", "/")
 
-    val parsed = Parser.parseInput(toCompile, relative_name.replace("/", "_"));
+    val parsed = Parser.parseInput(toCompile, relative_name.replace("/", "_")).get;
     //println(Util.prettyPrint(parsed))
     val top = parsed match {
       case x: Expr.TopLevel => x

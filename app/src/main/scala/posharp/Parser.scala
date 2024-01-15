@@ -1,11 +1,12 @@
 package posharp
 
-import fastparse.JavaWhitespace._
-import fastparse._
+import fastparse.JavaWhitespace.*
+import fastparse.*
 import Expr.GetProperty
 import jdk.jshell.spi.ExecutionControl.NotImplementedException
 
 import scala.compat.Platform.EOL
+import scala.util.{Failure, Success, Try}
 
 object Parser {
   //TODO fix issue when spacing at start of file
@@ -288,14 +289,12 @@ object Parser {
   }
 
   var file_name: String = ""
-  def parseInput(input: String, _file_name: String): Expr = {
-    file_name = _file_name;
+  def parseInput(input: String, _file_name: String): Try[Expr] = {
     val parsed = fastparse.parse(input, topLevel(_), verboseFailures = true);
     parsed match {
-      case Parsed.Success(expr, n) => expr.asInstanceOf[Expr];
-      case t: Parsed.Failure => {
-        println(t.trace(true).longAggregateMsg); throw new ParseException(s"parsing fail in $file_name");
-      }
+      case Parsed.Success(expr, n) => Success(expr.asInstanceOf[Expr]);
+      case t: Parsed.Failure => Failure(throw new ParseException(s"parsing fail in $_file_name\n\n${t.trace(true).longAggregateMsg}"))
+      
       case _ => throw new ParseException("parsing fail")
     }
   }
