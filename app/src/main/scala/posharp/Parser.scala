@@ -152,7 +152,8 @@ object Parser {
   def typeDefNoCol[$: P]: P[Type] = P(typeBase | typeArray | typeFunc | typeUser)
 
   def typeArray[$: P]: P[Type] = P("array" ~/ "[" ~ typeDefNoCol ~ "]").map(x => Type.Array(x))
-  def typeFunc[$: P]: P[Type] = P("func" ~/ "[" ~ "(" ~ typeDefNoCol.rep(sep=",") ~ ")" ~/ "=>" ~ typeDefNoCol ~ "]").map(x => Type.Function(x._1.toList, x._2))
+  //Type.Function(x._1.toList, x._2)
+  def typeFunc[$: P]: P[Type] = P("func" ~/ "[" ~ "(" ~ typeDefNoCol.rep(sep=",") ~ ")" ~/ "=>" ~ typeDefNoCol ~ "]").map(x => Type.Closure(Type.Function(x._1.toList, x._2), List()))
 
   def typeUser[$: P]: P[Type] = P(mod_ident ~ templateTypes.?).map(x => Type.UserType(x._1.name, x._2.getOrElse(List())))
 

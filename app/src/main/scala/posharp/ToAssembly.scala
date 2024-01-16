@@ -264,33 +264,53 @@ class ToAssembly(currentFile: String) {
       case Expr.Lambda(args, retType, body) => {
         val label = "lambda_" + lambdas.size
 
-        val info = FunctionInfo(label, "", args, retType, List())
-        functions = functions :+ info
-        lambdas = lambdas :+ (Expr.Func(label, args, retType, body, List()), env)
+
+
         val func_Type = Type.Function(args.map(x=>x.varType), retType)
-        val func_name = fNameSignature(info)
-        val struct_loc = varc.next()
+        val env_loc = varc.next()
 
         var ret = ""
-        val struct_llvm_type = s"{${env.map(x=>Type.toLLVM(x._2.varType)).mkString(",")}}"
+        val env_llvm_type = s"{${env.map(x=>Type.toLLVM(x._2.varType)).mkString(",")}}"
         val struct_llvm_type_dec = s"%Closure.$label = type {${env.map(x=>Type.toLLVM(x._2.varType))}}\n"
-        ret += s"$struct_loc = alloca $struct_llvm_type\n"
-        val (arg_code: List[String], arg_types: List[Type]) = env.zipWithIndex.map((x,idx)=>{
+        ret += s"$env_loc = alloca $env_llvm_type\n"
+        val arg_code = env.zipWithIndex.map((x,idx)=>{
           val (code, ty, loc) = convertLoc(Expr.Ident(x._1), env)
           val ret = code +
-          s"${varc.next()} = getelementptr $struct_llvm_type, $struct_llvm_type* $struct_loc, i32 0, i32 $idx\n" +
+          s"${varc.next()} = getelementptr $env_llvm_type, $env_llvm_type* $env_loc, i32 0, i32 $idx\n" +
           s"store ${Type.toLLVM(ty)} $loc, ${Type.toLLVM(ty)}* ${varc.last()}\n"
-          (ret, ty)
-        }).unzip: @unchecked
+          ret
+        })
         ret += arg_code.mkString("")
-        val closure_type = Type.Closure(func_Type, arg_types)
-        val (heap_code, closure_aloc) = allocate_on_heap(closure_type)
+        val closure_type = Type.Closure(func_Type,env.map(x=>(x._2.loc,x._2.varType)).toList)
+        val closure_llvm = Type.toLLVM(closure_type)
+        val (heap_code, closure_loc) = allocate_on_heap(closure_type)
         ret += heap_code
+
+        val info = FunctionInfo(label, "", InputVar("__closure__", closure_type) +: args, retType, List())
+        functions = functions :+ info
+        val func_name = fNameSignature(info)
 
         ret += s"${varc.next()} = alloca ${Type.toLLVM(func_Type)}\n" +
         s"store ${Type.toLLVM(func_Type)} @$func_name, ${Type.toLLVM(func_Type)}* ${varc.last()}\n" +
         s"${varc.next()} = load ${Type.toLLVM(func_Type)}, ${Type.toLLVM(func_Type)}* ${varc.secondLast()}\n"
-        (ret, func_Type)
+        val func_loc = varc.last()
+
+        ret += s"${varc.next()} = getelementptr $closure_llvm, $closure_llvm* $closure_loc, i32 0\n" +
+          s"store ${Type.toLLVM(func_Type)} $func_loc, ${Type.toLLVM(func_Type)}* ${varc.last()}\n"
+        //ret += s"${varc.next()} = getelementptr $closure_llvm, $closure_llvm* $closure_loc, i32 1\n" +
+        //  s"store $env_llvm_type* $env_loc, $env_llvm_type** ${varc.last()}\n"
+        ret += env.zipWithIndex.map((x, idx) => {
+          val (code, ty, loc) = convertLoc(Expr.Ident(x._1), env)
+           val ret = code +
+            s"${varc.next()} = getelementptr $closure_llvm, $closure_llvm* $closure_loc, i32 ${1+idx}\n" +
+            s"store ${Type.toLLVM(ty)} $loc, ${Type.toLLVM(ty)}* ${varc.last()}\n"
+          ret
+        }).mkString("")
+
+        lambdas = lambdas :+ (Expr.Func(label, InputVar("__closure__", closure_type) +: args, retType, body, List()), env)
+
+        ret += s"${varc.next()} = bitcast $closure_llvm* $closure_loc to $closure_llvm*\n"
+        (ret, closure_type)
       }
       case Expr.Nothing() => ("", Type.Undefined());
       case Expr.Compiled(code, retType, _) => (code, retType);
@@ -315,6 +335,7 @@ class ToAssembly(currentFile: String) {
     val alocLoc = varc.last();
     (aloc, alocLoc)
   }
+  //def set_struct_elem(struct_type, struct_loc, elem_type, elem_loc, elem_idx)
   def alloc_struct_with_args(args: List[Expr], env: Env): (String, List[Type]) = ???
   //TODO add line awareness for error reporting
   private def convertBlock(lines: List[Expr], env: Env): (String, Type) = {
@@ -613,7 +634,32 @@ class ToAssembly(currentFile: String) {
             s"store ${Type.toLLVM(x.varType)} %Input.${x.name}, ${Type.toLLVM(x.varType)}* %${x.name}\n").mkString //, align ${arraySizeFromType(x.varType)}
         //TODO might want to handle name shadowing here
 
-        body += "%dummy = alloca i32\n"
+        if (lambdaMode) {
+          if (info.args.isEmpty) throw new Exception("lambda does not have closure")
+          val (closure_type, closure_env) = info.args.head match {
+            case InputVar(_, Type.Closure(f, closure_env)) => (Type.Closure(f,closure_env), closure_env)
+            case _ => throw new Exception("lambda does not have closure")
+          }
+          var lambda_entry = ""
+          val env_type_llvm = s"{${closure_env.map(x => Type.toLLVM(x._2)).mkString(",")}}"
+          //lambda_entry += s"${varc.next()} = getelementptr inbounds ${Type.toLLVM(closure_type)}, ${Type.toLLVM(closure_type)}* %__closure__, i32 1\n"
+          //+ s"${varc.next()} = load $env_type_llvm*, $env_type_llvm** ${varc.secondLast()}\n"
+          val env_loc = varc.last()
+
+          lambda_entry += closure_env.zipWithIndex.map { case ((var_name, var_type), idx) => {
+            val var_llvm = Type.toLLVM(var_type)
+            s"${varc.next()} = load ${Type.toLLVM(closure_type)}*, ${Type.toLLVM(closure_type)}**  %__closure__" +
+             s"${varc.next()} = getelementptr inbounds ${Type.toLLVM(closure_type)}, ${Type.toLLVM(closure_type)}* ${varc.secondLast()}, i32 ${1+idx}\n"+
+              s"${varc.next()} = load $var_llvm, $var_llvm* ${varc.secondLast()}\n"+
+              s"${var_name} = alloca $var_llvm\n" +
+              s"store $var_llvm ${varc.last()}, $var_llvm* ${var_name}\n"
+          }
+          }.mkString("")
+
+          body += lambda_entry
+        }
+
+        //body += "%dummy = alloca i32\n"
         body += convert(function.body, newEnv)._1
 
         if (info.retType == Type.Undefined()) body += "ret void\n"
@@ -700,18 +746,23 @@ class ToAssembly(currentFile: String) {
   }
 
   def callLambda(input: Expr, args: List[Expr], env: Env): (String, Type) = convertLoc(input, env) match {
-    case (code, Type.Function(argTypes, retType), f_loc) => {
+    case (code, closure_type@Type.Closure(func_type@Type.Function(argTypes, retType), closure_env), closure_loc) => {
       val argRet = args.map(arg => convertLoc(arg, env))
-      var ret = code;
+      var ret = "\t;call lambda\n" + code;
       ret += argRet.map(x => x._1).mkString
 
       if (argTypes.length != args.length) throw new Exception(s"wrong number of arguments: expected ${argTypes.length}, got ${args.length}");
       (argRet.map(x=>x._2) zip argTypes).foreach( x=> {
         if (x._1!=x._2) throw new Exception(s"Wrong argument for function: expected ${x._2}, got ${x._1}");
       })
+      val closure_type_llvm = Type.toLLVM(closure_type)
+      ret += s"${varc.next()} = getelementptr inbounds $closure_type_llvm, $closure_type_llvm* $closure_loc, i32 0\n" +
+        s"${varc.next()} = load ${Type.toLLVM(func_type)}, ${Type.toLLVM(func_type)}* ${varc.secondLast()}\n"
+      val f_loc = varc.last()
 
-      val argsString = argRet.map(x=>s"${Type.toLLVM(x._2)} ${x._3}").mkString(", ")
-      val argTypeString = argTypes.map(x => Type.toLLVM(x)).mkString(", ")
+      //TODO right now whole closure is passed, could be only environment
+      val argsString = (s"$closure_type_llvm $closure_loc" +: argRet.map(x=>s"${Type.toLLVM(x._2)} ${x._3}")).mkString(", ")
+      val argTypeString = (closure_type_llvm +: argTypes.map(x => Type.toLLVM(x))).mkString(", ")
       if (retType != Type.Undefined()) ret += s"${varc.next()} = ";
       ret += s"call ${Type.toLLVM(retType)} ($argTypeString) $f_loc($argsString)\n"
       (ret, retType)

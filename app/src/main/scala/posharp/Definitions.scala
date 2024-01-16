@@ -2,6 +2,8 @@ package posharp
 
 import posharp.ToAssembly.FunctionInfo
 
+import scala.annotation.targetName
+
 sealed trait Expr
 object Expr{
   case class Str(s: String) extends Expr
@@ -89,9 +91,21 @@ object Type {
   case class Function(args: List[Type], retType: Type) extends Type
   case class T(num: Int) extends Type
   case class Enum(el: List[String]) extends Type
-  case class Closure(func: Function, env: List[Type]) extends Type
+  //https://stackoverflow.com/questions/10373715/scala-ignore-case-class-field-for-equals-hascode
+  case class Closure(func: Function)(val env: List[(String, Type)]) extends Type
+  object Closure {
+    @targetName("custom_closure_apply")
+    def apply(func: Function, env: List[(String, Type)]): Closure = Closure(func)(env)
+    /*
+    def unapply(u: Closure): Option[(Function, List[(String, Type)])] =
+      if (u eq null) None
+      else Some((u.func, u.env))
+     */
+    def unapply(u: Closure): Option[(Function, List[(String, Type)])] =
+      Some(( u.func, u.env))
 
-  //to be converted when parsing
+  }
+
   case class UserType(name: String, templates: List[Type]) extends Type
 
   def shortS(value: Type): String = value match {
@@ -101,10 +115,12 @@ object Type {
     case Bool() => "b"
     case Array(inner) => "arr_"+shortS(inner)+"_"
     //case Interface(inner) => "itf_"+inner.map(x=>shortS(x.varType))+"_"
-    case Interface(_, inner, innerf, templates) => "itf_"+inner.map(x=>shortS(x.varType)).mkString+"_"+innerf.map(x=>x.name)+"_"+ templates.map(x=>shortS(x)).mkString
+    case Interface(_, inner, innerf, templates) => "itf_"+inner.map(x=>shortS(x.varType)).mkString+"_"+innerf.map(x=>x.name).mkString+"_"+ templates.map(x=>shortS(x)).mkString
     case Function(args, retType) => "func_"+args.map(x=>shortS(x)).mkString+"_"+shortS(retType)
     case UserType(name, templates) => name + templates.map(x=>shortS(x)).mkString
-    case T(a) => s"T$a"
+    //case T(a) => s"T$a"
+    case Closure(func, env) => shortS(func)+env.map(x=>shortS(x._2)).mkString
+    case Undefined() => "v"
     case _ => throw new Exception(s"$value unrecognised");
   }
   def compare(val1: Type, val2: Type): Boolean = (val1, val2) match {
@@ -131,7 +147,7 @@ object Type {
     //presume that usertype is a class. Might have aliases in the future
     case UserType(name, templates) => s"%Class.$name.${templates.map(x=>toLLVM(x)).mkString}*"
     case Interface(name, _, _, templates) => s"%Class.$name.${templates.map(x=>toLLVM(x)).mkString}*"
-    case Closure(func, env) => s"{${toLLVM(func)}, {${env.map(x=>toLLVM(x)).mkString(",")}}}*"
+    case Closure(func, env) => s"{${toLLVM(func)}, {${env.map(x=>toLLVM(x._2)).mkString(",")}}}*"
     /*
     case Interface(vars, funcs) => {
       val argS = vars.map(x=>toLLVM(x.varType)).mkString(", ")
