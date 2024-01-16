@@ -286,7 +286,7 @@ class ToAssembly(currentFile: String) {
         val (heap_code, closure_loc) = allocate_on_heap(closure_type)
         ret += heap_code
 
-        val info = FunctionInfo(label, "", InputVar("__closure__", closure_type) +: args, retType, List())
+        val info = FunctionInfo(label, "", InputVar("__current_function__", closure_type) +: args, retType, List())
         functions = functions :+ info
         val func_name = fNameSignature(info)
 
@@ -307,7 +307,7 @@ class ToAssembly(currentFile: String) {
           ret
         }).mkString("")
 
-        lambdas = lambdas :+ (Expr.Func(label, InputVar("__closure__", closure_type) +: args, retType, body, List()), env)
+        lambdas = lambdas :+ (Expr.Func(label, InputVar("__current_function__", closure_type) +: args, retType, body, List()), env)
 
         ret += s"${varc.next()} = bitcast $closure_llvm* $closure_loc to $closure_llvm*\n"
         (ret, closure_type)
@@ -502,7 +502,7 @@ class ToAssembly(currentFile: String) {
         Expr.Import(formatFName(user_imp.file)+"_"+user_imp.toImport, user_imp.file)
       else user_imp
 
-      def change_file(name: String) = name.replace(formatFName(imp.file)+"_", file_prefix+"_")
+      def change_file(name: String) = name.replaceFirst(formatFName(imp.file)+"_", file_prefix+"_")
       if (!otherFiles.contains(imp.file)) throw new Exception(s"file \"${imp.file}\" could not be imported");
       val top = otherFiles(imp.file)
       var ret = ""
@@ -628,7 +628,7 @@ class ToAssembly(currentFile: String) {
         var ret = ""
         if (info.name == file_prefix+"_main") ret += main_alias
           ret += s"define $addPrivate${Type.toLLVM(info.retType)} @${fname}($args) #0 {\n"
-        val newEnv = upperScope ++ info.args.map(x => (x.name, Variable(s"%${x.name}", x.varType))).toMap //Variable(s"%${x.name}.${varc.extra()}"
+        var newEnv = upperScope ++ info.args.map(x => (x.name, Variable(s"%${x.name}", x.varType))).toMap //Variable(s"%${x.name}.${varc.extra()}"
         var body = info.args.map(x =>
           s"%${x.name} = alloca ${Type.toLLVM(x.varType)}, align 64\n" + //, align ${arraySizeFromType(x.varType)}
             s"store ${Type.toLLVM(x.varType)} %Input.${x.name}, ${Type.toLLVM(x.varType)}* %${x.name}\n").mkString //, align ${arraySizeFromType(x.varType)}
@@ -641,20 +641,18 @@ class ToAssembly(currentFile: String) {
             case _ => throw new Exception("lambda does not have closure")
           }
           var lambda_entry = ""
-          val env_type_llvm = s"{${closure_env.map(x => Type.toLLVM(x._2)).mkString(",")}}"
-          //lambda_entry += s"${varc.next()} = getelementptr inbounds ${Type.toLLVM(closure_type)}, ${Type.toLLVM(closure_type)}* %__closure__, i32 1\n"
-          //+ s"${varc.next()} = load $env_type_llvm*, $env_type_llvm** ${varc.secondLast()}\n"
-          val env_loc = varc.last()
 
           lambda_entry += closure_env.zipWithIndex.map { case ((var_name, var_type), idx) => {
             val var_llvm = Type.toLLVM(var_type)
-            s"${varc.next()} = load ${Type.toLLVM(closure_type)}*, ${Type.toLLVM(closure_type)}**  %__closure__" +
+            s"${varc.next()} = load ${Type.toLLVM(closure_type)}*, ${Type.toLLVM(closure_type)}**  %__current_function__" +
              s"${varc.next()} = getelementptr inbounds ${Type.toLLVM(closure_type)}, ${Type.toLLVM(closure_type)}* ${varc.secondLast()}, i32 ${1+idx}\n"+
               s"${varc.next()} = load $var_llvm, $var_llvm* ${varc.secondLast()}\n"+
               s"${var_name} = alloca $var_llvm\n" +
               s"store $var_llvm ${varc.last()}, $var_llvm* ${var_name}\n"
           }
           }.mkString("")
+
+          newEnv = newEnv + ("__current_function__" -> Variable(s"%__current_function__", closure_type))
 
           body += lambda_entry
         }
