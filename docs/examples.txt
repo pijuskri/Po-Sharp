@@ -49,3 +49,15 @@ object Dynamic {
         return same;
     }
 }
+
+//recursive lambda example using intrinsic __current_function__
+def recursive_lambda() {
+     val l = lambda (b: int): void => {
+        if (b>0) {
+            print(b);
+            __current_function__((b-1));
+        };
+     };
+
+     l(5);
+}

@@ -10,6 +10,8 @@
 ## To do
 
 
+* make classes also store function pointers
+* lambda closure local names might cause llvm error because of varc.extra
 * all imported types should be nameless (i.e. not usertype)
 * add copy command to arrays(and maybe structs)
 * operator overloading/type alias ith 2 step parsing (maybe use if in parser to parse once with less dept hand then more)

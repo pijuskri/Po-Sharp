@@ -83,16 +83,16 @@ object Parser {
     case (ident, None) => Expr.DefVal(ident.name, Type.Undefined())
   }
 
-  def accessVar[$: P]: P[Expr] = P(ident ~ ((".".! ~ ident ~ "(".! ~ prefixExpr.rep(sep = ",") ~ ")") | (".".! ~ ident) | ("[".! ~/ prefixExpr ~ "]")).rep)
+  def accessVar[$: P]: P[Expr] = P(ident ~ ((".".! ~ ident ~ NoCut(templateTypes).? ~ "(".! ~ prefixExpr.rep(sep = ",") ~ ")") | (".".! ~ ident) | ("[".! ~/ prefixExpr ~ "]")).rep)
     .map { case (start, acs) =>
     acs.foldLeft(start: Expr)((acc, v) => v match {
       case (".", Expr.Ident(ident)) => GetProperty(acc, ident)
       case ("[", index: Expr) => Expr.GetArray(acc, index)
       //TODO template functions not handled
-      case (".", Expr.Ident(ident), "(", args: List[Expr]) => {
+      case (".", Expr.Ident(ident), templates: Option[List[Type]], "(", args: List[Expr]) => {
         //val callf_prefix = if(prefix.nonEmpty) prefix else file_name
         //callf_prefix+"_"+
-        Expr.CallObjFunc(acc, Expr.CallF(ident, args, List()))
+        Expr.CallObjFunc(acc, Expr.CallF(ident, args, templates.getOrElse(List())))
       }//throw new NotImplementedException("")
       case x => throw new ParseException(s"bad var access: $x");
     })

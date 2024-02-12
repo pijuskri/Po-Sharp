@@ -154,6 +154,8 @@ def fib(n: int): int {
 * Objects
 * runtime exceptions
 * multiple files
+* lambda functions
+* Generics
 
 ### To do
 <div id="todo"></div>
@@ -161,19 +163,16 @@ def fib(n: int): int {
 #### Major
 
 * Fully functional import/export system
-* Tuples
 * Extension methods
-* lambda functions
-* Generics
-* Object inheritance
-* library functions
 * Garbage collector/manual memory
 * packages
 * File i/o
+* library functions
 * Optimisation
 
 #### Minor
 
+* Tuples
 * typeof
 * Structs
 * ref/out
