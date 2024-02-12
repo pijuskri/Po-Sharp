@@ -1,0 +1,37 @@
+image: antoniosbarotsis/posharp-veritas
+command_prefix: set -e # Make Bash fail fast.
+
+tasks:
+
+  build:
+    command: |
+      # Skip separate build stage locally to save time
+      if [[ -z "${CI}" ]]; then
+        echo "Not in CI environment, skipping build stage..."
+      else
+        ./gradlew clean build --no-daemon
+      fi
+    description: "Performs a `gradle build`. Only runs in the CI environment to save time."
+    environment:
+      CI: ''
+    excluded_input_paths:
+      - 'build'
+    input_paths:
+      - '.'
+
+  test:
+    cache: false
+    command: |
+      chmod +x build-llvm.sh
+      dos2unix build-llvm.sh
+
+      ./gradlew runCoverage $args --no-daemon
+    dependencies:
+      - build
+    description: "Runs the tests and generates a coverage report."
+    environment:
+      args: ''
+    input_paths:
+      - '.'
+    output_paths:
+      - coverage.json

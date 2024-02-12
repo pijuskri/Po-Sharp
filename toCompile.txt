@@ -1,3 +1,0 @@
-def main(): int {
-    print("hello world!");
-}

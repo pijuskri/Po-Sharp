@@ -18,20 +18,20 @@
 -->
 
 <p align="center">
-    <img src='logo.png' alt="">
+    <img src='docs/logo.png' alt="">
 </p>
 
 [![Contributors][contributors-shield]][contributors-url]
 [![Issues][issues-shield]][issues-url]
 [![MIT License][license-shield]][license-url]
 [![LinkedIn][linkedin-shield]][linkedin-url]
-[![Build and Test](https://github.com/pijuskri/Po-Sharp/actions/workflows/workflow.yml/badge.svg?branch=master)](https://github.com/pijuskri/Po-Sharp/actions/workflows/workflow.yml)
+[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/pijuskri/Po-Sharp/workflow.yml?label=Build%20and%20Test&style=for-the-badge)](https://github.com/pijuskri/Po-Sharp/actions/workflows/workflow.yml)
 
 
 <h2 align="center">Po#</h2>
 <div>
   <p align="center">
-    Custom language compiler to X86_64 nasm assembly, written in Scala
+    Custom language frontend for LLVM IR, written in Scala
     <br />
     <br />
   </p>
@@ -83,36 +83,38 @@ to translate to assembly.
 
 * [Scala](https://www.scala-lang.org/)
 * [FastParse](https://github.com/com-lihaoyi/fastparse)
+* [LLVM](https://llvm.org/)
 
 <!-- GETTING STARTED -->
 ### Prerequisites
 <div id="prerequisites"></div>
 
-* [Ubuntu 18.04]() and/or [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)
+* [Ubuntu 18.04 or newer]() and/or [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)
 * [JDK 13+](https://www.oracle.com/java/technologies/downloads/)
-* [Scala 2.13](https://www.scala-lang.org/download/)
-* [SBT 1.6.1](https://www.scala-sbt.org/download.html)
-* [NASM](https://www.nasm.us/)
+* [Scala 2.13+](https://www.scala-lang.org/download/)
+* [JDK 11+](https://www.oracle.com/java/technologies/downloads/)
+* [Gradle 7.5](https://gradle.org/install/)
 * [GCC](https://gcc.gnu.org/)
+* [Clang 15+](https://releases.llvm.org/)
+* [LLVM 15+](https://releases.llvm.org/download.html)
 
 ### Getting Started
 <div id="getting-started"></div>
 
-Currently, I run the scala compiler through IntelliJ. The conversion from
-assembly to binary is handled by a makefile, that i run in WSL with ubuntu 18;
+1. All prerequisites should be installed and verified.
+2. Create a .txt file in ``/po_src/`` which will act as the main source file
+3. Create a main function
+4. To compile to llvm, run ```gradle app:run```
+5. To run, 
 
-There is also an option to compile with a single command using sbt. Just run `make full`
-in the main directory
-
-For now the code that is interpreted can be typed in the Main object. The assembly file
-will be generated in `compiled/hello.asm` (do not ask why I named it that).
-
-With IntelliJ
-* Run `Main.scala`
-* In root directory call `make`
-
-With sbt
+With gradle
 * In root directory call `make full`
+
+[//]: # (TODO Does this still work? Probably a good idea to use gradle instead)
+
+A [testing framework](./veritas/src/main/scala/core/) is also included in the project.
+To run the language tests do `gradle runTests`. The documentation can be found
+[here](./veritas/src/main/scala/README.md).
 
 ### Language specification
 <div id="language"></div>
@@ -150,26 +152,28 @@ def fib(n: int): int {
 * Strings
 * Enums
 * Objects
+* runtime exceptions
+* multiple files
+* lambda functions
+* Generics
 
 ### To do
 <div id="todo"></div>
 
 #### Major
 
-* Generics
-* runtime exceptions
-* Object inheritance
-* lambda functions
-* library functions
-* typeof
-* Garbage collector
-* multiple files
+* Fully functional import/export system
+* Extension methods
+* Garbage collector/manual memory
 * packages
 * File i/o
+* library functions
 * Optimisation
 
 #### Minor
 
+* Tuples
+* typeof
 * Structs
 * ref/out
 * Type alias
@@ -195,4 +199,4 @@ def fib(n: int): int {
 [forks-url]: https://github.com/github_username/repo_name/network/members
 [stars-shield]: https://img.shields.io/github/stars/github_username/repo_name.svg?style=for-the-badge
 [stars-url]: https://github.com/github_username/repo_name/stargazers
-[product-screenshot]: logo.png
+[product-screenshot]: docs/logo.png
